@@ -1,0 +1,345 @@
+@using System.Globalization
+
+<div class="values">
+    <div class="filters">
+        <input type="search" class="grow" placeholder="Filter by name, section or value (press Enter)" @bind="_query" @bind:after="Refresh" />
+        <div class="chips" role="group" aria-label="Value type">
+            @foreach (TypeFilter t in Enum.GetValues<TypeFilter>())
+            {
+                <button type="button" class="chip @(_type == t ? "on" : null)" @onclick="() => SetType(t)">@TypeLabel(t)</button>
+            }
+        </div>
+        @if (_sections.Count > 0)
+        {
+            <select @bind="_scope" @bind:after="Refresh" aria-label="Section">
+                <option value="">All sections</option>
+                @foreach (string section in _sections)
+                {
+                    <option value="@section">@section</option>
+                }
+            </select>
+        }
+        <select @bind="_maxDepth" @bind:after="Refresh" aria-label="Depth" title="How deep below a section to look. Shallow depth hides history and log noise.">
+            <option value="0">Any depth</option>
+            <option value="1">1 level</option>
+            <option value="2">2 levels</option>
+            <option value="3">3 levels</option>
+        </select>
+        <label class="check"><input type="checkbox" @bind="_editableOnly" @bind:after="Refresh" /> Editable only</label>
+    </div>
+
+    @if (Changes is not null)
+    {
+        <div class="filters compare-bar">
+            <span class="muted">Compared with the earlier save:</span>
+            <div class="chips" role="group" aria-label="Change filter">
+                <button type="button" class="chip @(_change == ChangeFilter.All ? "on" : null)" @onclick="() => SetChange(ChangeFilter.All)">All</button>
+                <button type="button" class="chip @(_change == ChangeFilter.Changed ? "on" : null)" @onclick="() => SetChange(ChangeFilter.Changed)">Changed (@Changes.Count.ToString("N0"))</button>
+                <button type="button" class="chip up @(_change == ChangeFilter.Increased ? "on" : null)" @onclick="() => SetChange(ChangeFilter.Increased)">Increased (@_up.ToString("N0"))</button>
+                <button type="button" class="chip down @(_change == ChangeFilter.Decreased ? "on" : null)" @onclick="() => SetChange(ChangeFilter.Decreased)">Decreased (@_down.ToString("N0"))</button>
+            </div>
+        </div>
+    }
+
+    <div class="meta">
+        <span>@_filtered.Count.ToString("N0") of @_all.Count.ToString("N0") values</span>
+        @if (_sort != SortKey.File)
+        {
+            <button type="button" class="link" @onclick="ResetOrder">Reset order</button>
+        }
+        <span class="spacer"></span>
+        <button type="button" class="button small" disabled="@(_page == 0)" @onclick="PreviousPage">Previous</button>
+        <span>Page @(_page + 1) of @PageCount</span>
+        <button type="button" class="button small" disabled="@(_page + 1 >= PageCount)" @onclick="NextPage">Next</button>
+        <select @bind="_pageSize" @bind:after="Refresh" aria-label="Rows per page">
+            <option value="50">50 rows</option>
+            <option value="100">100 rows</option>
+            <option value="250">250 rows</option>
+        </select>
+    </div>
+
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>Section</th>
+                    <th><button type="button" class="sort" @onclick="() => SortBy(SortKey.Name)">Name @Arrow(SortKey.Name)</button></th>
+                    <th><button type="button" class="sort" @onclick="() => SortBy(SortKey.Type)">Type @Arrow(SortKey.Type)</button></th>
+                    <th><button type="button" class="sort" @onclick="() => SortBy(SortKey.Value)">Value @Arrow(SortKey.Value)</button></th>
+                    @if (Changes is not null)
+                    {
+                        <th><button type="button" class="sort" @onclick="() => SortBy(SortKey.Change)">Change @Arrow(SortKey.Change)</button></th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (SaveNode n in _filtered.Skip(_page * _pageSize).Take(_pageSize))
+                {
+                    <tr @key="n">
+                        <td class="path" title="@SaveTree.Path(n)">@SaveTree.Path(n, 3, includeSelf: false)</td>
+                        <td class="cell-name" title="@n.Name">@n.Name</td>
+                        <td><span class="kind @KindClass(n)">@KindLabel(n)</span></td>
+                        <td class="cell-value"><ValueEditor Node="n" OnEdited="OnEdited" /></td>
+                        @if (Changes is not null)
+                        {
+                            <td>
+                                @if (Changes.TryGetValue(n, out Change? c))
+                                {
+                                    <span class="delta @c.Kind.ToString().ToLowerInvariant()" title="was @c.Old">@Format(c)</span>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+        @if (_filtered.Count == 0)
+        {
+            <p class="empty">No values match these filters.</p>
+        }
+    </div>
+</div>
+
+@code {
+    enum TypeFilter { All, Integers, Decimals, Flags, Text }
+
+    enum ChangeFilter { All, Changed, Increased, Decreased }
+
+    enum SortKey { File, Name, Value, Type, Change }
+
+    SaveDocument? _builtFor;
+    Dictionary<SaveNode, Change>? _builtChanges;
+    List<SaveNode> _all = [];
+    List<SaveNode> _filtered = [];
+    List<string> _sections = [];
+    string _query = "";
+    string _scope = "";
+    TypeFilter _type = TypeFilter.All;
+    ChangeFilter _change = ChangeFilter.All;
+    SortKey _sort = SortKey.File;
+    bool _desc;
+    bool _editableOnly = true;
+    int _page;
+    int _pageSize = 100;
+    int _maxDepth;
+    int _up;
+    int _down;
+
+    [Parameter, EditorRequired] public SaveDocument Doc { get; set; } = null!;
+    [Parameter] public Dictionary<SaveNode, Change>? Changes { get; set; }
+    [Parameter] public string? InitialScope { get; set; }
+    [Parameter] public int InitialMaxDepth { get; set; }
+    [Parameter] public EventCallback<SaveEdit> OnEdited { get; set; }
+
+    int PageCount => Math.Max(1, (_filtered.Count + _pageSize - 1) / _pageSize);
+
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_builtFor, Doc))
+        {
+            _builtFor = Doc;
+            _all = SaveTree.Collect(Doc.Root, n => n.IsLeafValue);
+            _sections = Doc.Root.Items.Count is > 1 and <= 40 ? [.. Doc.Root.Items.Select(c => c.Name)] : [];
+            _scope = InitialScope is not null && _sections.Contains(InitialScope) ? InitialScope : "";
+            _maxDepth = InitialMaxDepth;
+            _query = "";
+            _type = TypeFilter.All;
+            _sort = SortKey.File;
+            _desc = false;
+            _builtChanges = null;
+            Refresh();
+        }
+
+        if (!ReferenceEquals(_builtChanges, Changes))
+        {
+            _builtChanges = Changes;
+            _up = Changes?.Values.Count(c => c.Kind == ChangeKind.Increased) ?? 0;
+            _down = Changes?.Values.Count(c => c.Kind == ChangeKind.Decreased) ?? 0;
+            _change = Changes is null ? ChangeFilter.All : ChangeFilter.Changed;
+            _sort = Changes is null ? SortKey.File : SortKey.Change;
+            _desc = false;
+            Refresh();
+        }
+    }
+
+    void Refresh()
+    {
+        IEnumerable<SaveNode> q = _all;
+        if (_editableOnly)
+        {
+            q = q.Where(n => n.IsEditable);
+        }
+
+        if (_scope.Length > 0)
+        {
+            q = q.Where(n => SaveTree.TopLevel(n).Name == _scope);
+        }
+
+        if (_maxDepth > 0)
+        {
+            q = q.Where(n => Depth(n) <= _maxDepth);
+        }
+
+        q = _type switch
+        {
+            TypeFilter.Integers => q.Where(n => n.Kind == NodeKind.Integer),
+            TypeFilter.Decimals => q.Where(n => n.Kind == NodeKind.Float),
+            TypeFilter.Flags => q.Where(n => n.Kind == NodeKind.Bool),
+            TypeFilter.Text => q.Where(n => n.Kind == NodeKind.String),
+            _ => q,
+        };
+
+        if (Changes is not null && _change != ChangeFilter.All)
+        {
+            q = q.Where(n => Changes.TryGetValue(n, out Change? c) && _change switch
+            {
+                ChangeFilter.Increased => c.Kind == ChangeKind.Increased,
+                ChangeFilter.Decreased => c.Kind == ChangeKind.Decreased,
+                _ => true,
+            });
+        }
+
+        string term = _query.Trim();
+        if (term.Length > 0)
+        {
+            q = q.Where(n => Matches(n, term));
+        }
+
+        List<SaveNode> list = [.. q];
+        Sort(list);
+        _filtered = list;
+        _page = 0;
+    }
+
+    // Levels below the top-level section the value sits in (a direct child of a section is 1).
+    static int Depth(SaveNode n)
+    {
+        int depth = 0;
+        for (SaveNode? p = n; p?.Parent?.Parent is not null; p = p.Parent)
+        {
+            depth++;
+        }
+
+        return depth;
+    }
+
+    static bool Matches(SaveNode n, string term) =>
+        n.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || (n.Value?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false)
+        || (n.Parent?.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    void Sort(List<SaveNode> list)
+    {
+        switch (_sort)
+        {
+            case SortKey.Name:
+                list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                break;
+            case SortKey.Type:
+                list.Sort((a, b) => a.Kind.CompareTo(b.Kind));
+                break;
+            case SortKey.Value:
+                SortKeyed(list, ValueKey);
+                break;
+            case SortKey.Change:
+                SortKeyed(list, ChangeKey);
+                break;
+        }
+
+        if (_desc)
+        {
+            list.Reverse();
+        }
+    }
+
+    static void SortKeyed(List<SaveNode> list, Func<SaveNode, (int Group, double Number, string Text)> key)
+    {
+        SaveNode[] items = [.. list];
+        (int Group, double Number, string Text)[] keys = [.. items.Select(key)];
+        Array.Sort(keys, items, Comparer<(int Group, double Number, string Text)>.Create((a, b) =>
+        {
+            int c = a.Group.CompareTo(b.Group);
+            if (c == 0)
+            {
+                c = a.Number.CompareTo(b.Number);
+            }
+
+            return c != 0 ? c : string.Compare(a.Text, b.Text, StringComparison.OrdinalIgnoreCase);
+        }));
+        list.Clear();
+        list.AddRange(items);
+    }
+
+    static (int, double, string) ValueKey(SaveNode n) => n.Kind switch
+    {
+        NodeKind.Integer or NodeKind.Float => (0, double.TryParse(n.Value, CultureInfo.InvariantCulture, out double d) ? d : 0, ""),
+        NodeKind.Bool => (1, n.Value == "true" ? 1 : 0, ""),
+        _ => (2, 0, n.Value ?? ""),
+    };
+
+    (int, double, string) ChangeKey(SaveNode n) =>
+        Changes is not null && Changes.TryGetValue(n, out Change? c) ? (0, -Math.Abs(c.Delta), "") : (1, 0, "");
+
+    void SetType(TypeFilter t)
+    {
+        _type = t;
+        Refresh();
+    }
+
+    void SetChange(ChangeFilter c)
+    {
+        _change = c;
+        Refresh();
+    }
+
+    void SortBy(SortKey key)
+    {
+        if (_sort == key)
+        {
+            _desc = !_desc;
+        }
+        else
+        {
+            _sort = key;
+            _desc = false;
+        }
+
+        Refresh();
+    }
+
+    void ResetOrder()
+    {
+        _sort = SortKey.File;
+        _desc = false;
+        Refresh();
+    }
+
+    void PreviousPage() => _page = Math.Max(0, _page - 1);
+
+    void NextPage() => _page = Math.Min(PageCount - 1, _page + 1);
+
+    string Arrow(SortKey key) => _sort == key ? (_desc ? "v" : "^") : "";
+
+    static string TypeLabel(TypeFilter t) => t switch
+    {
+        TypeFilter.Integers => "Integers",
+        TypeFilter.Decimals => "Decimals",
+        TypeFilter.Flags => "Flags",
+        TypeFilter.Text => "Text",
+        _ => "All types",
+    };
+
+    static string KindLabel(SaveNode n) => n.Kind switch
+    {
+        NodeKind.Integer => "int",
+        NodeKind.Float => "decimal",
+        NodeKind.Bool => "flag",
+        _ => "text",
+    };
+
+    static string KindClass(SaveNode n) => KindLabel(n);
+
+    static string Format(Change c) => c.Kind == ChangeKind.Changed
+        ? "changed"
+        : c.Delta.ToString("+#,0.##;-#,0.##;0", CultureInfo.InvariantCulture);
+}

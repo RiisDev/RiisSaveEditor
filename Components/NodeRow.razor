@@ -1,0 +1,50 @@
+<div class="node">
+    <div class="row" style="--depth:@Math.Min(Depth, 12)">
+        <button type="button" class="toggle" disabled="@(!Node.HasChildren)" @onclick="Toggle" aria-label="Expand or collapse">@(Node.HasChildren ? (_open ? "-" : "+") : "")</button>
+        <span class="name" title="@Node.Name">@(Label ?? Node.Name)</span>
+        @if (Node.TypeLabel is not null)
+        {
+            <span class="type">@Node.TypeLabel</span>
+        }
+        <span class="value">
+            @if (Node.IsContainer)
+            {
+                <span class="muted">@Node.Children.Count items</span>
+            }
+            else
+            {
+                <ValueEditor Node="Node" OnEdited="OnEdited" />
+            }
+        </span>
+    </div>
+    @if (_open)
+    {
+        @foreach (SaveNode child in Node.Children.Take(_shown))
+        {
+            <NodeRow @key="child" Node="child" Depth="Depth + 1" OnEdited="OnEdited" />
+        }
+        @if (Node.Children.Count > _shown)
+        {
+            <button type="button" class="more" style="--depth:@Math.Min(Depth + 1, 12)" @onclick="ShowMore">Show more (@(Node.Children.Count - _shown) remaining)</button>
+        }
+    }
+</div>
+
+@code {
+    const int PageSize = 100;
+
+    int _shown = PageSize;
+    bool _open;
+
+    [Parameter, EditorRequired] public SaveNode Node { get; set; } = null!;
+    [Parameter] public int Depth { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public bool StartOpen { get; set; }
+    [Parameter] public EventCallback<SaveEdit> OnEdited { get; set; }
+
+    protected override void OnInitialized() => _open = StartOpen;
+
+    void Toggle() => _open = !_open;
+
+    void ShowMore() => _shown += PageSize;
+}

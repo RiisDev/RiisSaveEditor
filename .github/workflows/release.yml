@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version as MAJOR.MINOR.BUGFIX (for example 1.2.3). The tag v<version> is created on the selected commit.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        env:
+          RAW: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          v="${RAW#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Version must be MAJOR.MINOR.BUGFIX, got '$RAW'"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid: [linux-x64, win-x64]
+        variant:
+          - { name: single-file, flags: '--self-contained -p:PublishSingleFile=true' }
+          - { name: self-contained, flags: '--self-contained' }
+          - { name: framework-dependent, flags: '--no-self-contained' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish
+        run: >
+          dotnet publish RiisSaveEditor.csproj -c Release -r ${{ matrix.rid }}
+          ${{ matrix.variant.flags }}
+          -p:Version=${{ needs.version.outputs.version }}
+          -p:DebugType=None -p:DebugSymbols=false
+          -o publish
+      - name: Package
+        run: |
+          name="RiisSaveEditor-v${{ needs.version.outputs.version }}-${{ matrix.variant.name }}-${{ matrix.rid }}"
+          mkdir dist
+          if [[ "${{ matrix.rid }}" == win-* ]]; then
+            (cd publish && zip -qr "../dist/$name.zip" .)
+          else
+            tar -czf "dist/$name.tar.gz" -C publish .
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant.name }}-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  container:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          # The docker build step also uploads a .dockerbuild record artifact that cannot be
+          # extracted, so only fetch the six archives.
+          pattern: '*-x64'
+          merge-multiple: true
+      # RELEASE_TOKEN is a personal access token, so the release is authored by that
+      # account. The built-in GITHUB_TOKEN would show github-actions as the author.
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG: v${{ needs.version.outputs.version }}
+        run: >
+          gh release create "$TAG" dist/*
+          --repo "${{ github.repository }}"
+          --target "${{ github.sha }}"
+          --title "$TAG"
+          --generate-notes

@@ -1,0 +1,23 @@
+services:
+  save-editor:
+    build: .
+    image: riis-save-editor
+    ports:
+      # Loopback only. Put a reverse proxy with HTTPS and authentication in front before exposing it.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - save-editor-data:/app/App_Data
+    restart: unless-stopped
+    # A parsed save can use a lot of memory, so cap it and drop everything the app does not need.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 4g
+    pids_limit: 256
+
+volumes:
+  save-editor-data:

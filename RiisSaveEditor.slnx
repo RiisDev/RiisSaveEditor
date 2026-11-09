@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Checks/Checks.csproj" />
+  <Project Path="RiisSaveEditor.csproj" />
+</Solution>

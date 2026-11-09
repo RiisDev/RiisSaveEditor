@@ -1,0 +1,122 @@
+@inject IJSRuntime Js
+
+<details class="cache-panel">
+    <summary>Saved files and resume code</summary>
+    <div class="cache-body">
+        <p class="muted">Uploaded saves are kept on the server for 30 days after you last use them, so your next upload of the same game is compared automatically. Your resume code is stored in this browser. Paste it into another browser or device to see the same files there.</p>
+
+        <div class="code-row">
+            <label for="current-code">Your code</label>
+            @if (Code is null)
+            {
+                <span class="muted">Loading...</span>
+            }
+            else
+            {
+                <input id="current-code" type="text" readonly value="@Code" class="mono secret @(_reveal ? "shown" : null)" autocomplete="off" />
+                <button type="button" class="button small" @onclick="() => _reveal = !_reveal">@(_reveal ? "Hide" : "Show")</button>
+                <button type="button" class="button small" @onclick="CopyAsync">@(_copied ? "Copied" : "Copy")</button>
+                <button type="button" class="button small" @onclick="OnGenerate">Generate a new code</button>
+            }
+        </div>
+
+        <form class="code-row" @onsubmit="SetAsync">
+            <label for="new-code">Use a code</label>
+            <input id="new-code" type="text" placeholder="Paste a code from another browser or device" @bind="_custom" autocomplete="off" />
+            <button type="submit" class="button small">Use this code</button>
+        </form>
+        @if (_problem is not null)
+        {
+            <p class="notice error" role="alert">@_problem</p>
+        }
+        <p class="muted small">Your code is a random GUID, which is what keeps your files private: anyone who has it can see them, and nobody can guess it. Keep it to yourself. Switching codes does not delete anything, files stay under the old code until they expire.</p>
+
+        <label class="check"><input type="checkbox" checked="@AutoCompare" @onchange="AutoToggledAsync" /> Compare new uploads with my previous save automatically</label>
+
+        <h3>Saved with this code</h3>
+        @if (Entries.Count == 0)
+        {
+            <p class="muted">Nothing saved yet. Open a save and it will appear here.</p>
+        }
+        else
+        {
+            <table class="grid entries">
+                <thead><tr><th>File</th><th>Game type</th><th>Size</th><th>Saved</th><th>Expires</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (CacheEntry entry in Entries)
+                    {
+                        <tr @key="entry.Id">
+                            <td class="cell-name" title="@entry.FileName">@entry.FileName @if (entry.Edited) { <span class="badge warn">edited</span> }</td>
+                            <td>@entry.Format</td>
+                            <td>@FormatBytes(entry.Size)</td>
+                            <td>@SaveCache.Ago(entry.UploadedUtc, DateTimeOffset.UtcNow)</td>
+                            <td>in @Math.Max(0, (int)Math.Ceiling((entry.ExpiresUtc - DateTimeOffset.UtcNow).TotalDays)) days</td>
+                            <td><button type="button" class="button small" @onclick="() => OnDelete.InvokeAsync(entry.Id)">Delete</button></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+            <div class="code-row">
+                @if (_confirmForget)
+                {
+                    <button type="button" class="button small danger" @onclick="ForgetAsync">Yes, delete all saved files for this code</button>
+                    <button type="button" class="button small" @onclick="() => _confirmForget = false">Cancel</button>
+                }
+                else
+                {
+                    <button type="button" class="button small" @onclick="() => _confirmForget = true">Forget all my saved files</button>
+                }
+            </div>
+        }
+    </div>
+</details>
+
+@code {
+    string _custom = "";
+    string? _problem;
+    bool _reveal;
+    bool _copied;
+    bool _confirmForget;
+
+    [Parameter] public string? Code { get; set; }
+    [Parameter] public IReadOnlyList<CacheEntry> Entries { get; set; } = [];
+    [Parameter] public bool AutoCompare { get; set; } = true;
+    [Parameter] public EventCallback<string> OnUseCode { get; set; }
+    [Parameter] public EventCallback OnGenerate { get; set; }
+    [Parameter] public EventCallback<string> OnDelete { get; set; }
+    [Parameter] public EventCallback OnForgetAll { get; set; }
+    [Parameter] public EventCallback<bool> OnAutoChanged { get; set; }
+
+    async Task CopyAsync()
+    {
+        _copied = await Js.InvokeAsync<bool>("riisCode.copy", Code);
+    }
+
+    async Task SetAsync()
+    {
+        _problem = SaveCache.CodeProblem(_custom);
+        if (_problem is not null)
+        {
+            return;
+        }
+
+        await OnUseCode.InvokeAsync(_custom);
+        _custom = "";
+        _copied = false;
+    }
+
+    Task AutoToggledAsync(ChangeEventArgs e) => OnAutoChanged.InvokeAsync(e.Value is true);
+
+    async Task ForgetAsync()
+    {
+        _confirmForget = false;
+        await OnForgetAll.InvokeAsync();
+    }
+
+    static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / 1024.0 / 1024.0:0.#} MB",
+    };
+}

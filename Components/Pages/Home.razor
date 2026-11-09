@@ -1,0 +1,656 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject SaveFormatRegistry Registry
+@inject IJSRuntime Js
+@inject SaveCache Cache
+
+<PageTitle>Riis Save Editor</PageTitle>
+
+<CachePanel Code="@_code" Entries="_entries" AutoCompare="_autoCompare" OnUseCode="UseCodeAsync" OnGenerate="GenerateCodeAsync" OnDelete="DeleteEntryAsync" OnForgetAll="ForgetAllAsync" OnAutoChanged="AutoChangedAsync" />
+
+@if (_doc is null)
+{
+    <section class="hero">
+        <h2>Edit game saves in your browser</h2>
+        <p class="lead">Open a save, change values in a tree or a sortable table, compare against an earlier save to see what went up or down, then download the result. Saves you open are kept for 30 days after you last use them so the next upload is compared automatically; you can see, delete or move them with your resume code below.</p>
+
+        <label class="dropzone @(_busy ? "busy" : null)">
+            <InputFile @key="_inputKey" class="file-input" OnChange="LoadAsync" />
+            <strong>@(_busy ? "Reading save..." : "Drop a save file here")</strong>
+            <span>or click to choose one</span>
+        </label>
+
+        @if (_needsPassword)
+        {
+            <form class="password" @onsubmit="OpenWithPasswordAsync">
+                <input type="password" placeholder="Password" autocomplete="off" @bind="_password" />
+                <button type="submit" class="button primary">Open</button>
+            </form>
+        }
+
+        @if (_notice is not null)
+        {
+            <p class="notice done" role="status">@_notice</p>
+        }
+
+        @if (_error is not null)
+        {
+            <p class="notice error" role="alert">@_error</p>
+        }
+
+        <div class="formats">
+            <article class="format-card">
+                <h3>Ren'Py</h3>
+                <p>Saves (<code>.save</code>) and the <code>persistent</code> file. Edited saves are re-signed so current Ren'Py versions accept them.</p>
+            </article>
+            <article class="format-card">
+                <h3>Unity</h3>
+                <p>Easy Save 3 (<code>.es3</code>) files, including gzip and password-encrypted ones.</p>
+            </article>
+            <article class="format-card">
+                <h3>Unreal Engine</h3>
+                <p>SaveGame files (<code>.sav</code>) from UE 4 and 5, with typed structs, text, arrays and maps.</p>
+            </article>
+            <article class="format-card">
+                <h3>RPG Maker MZ</h3>
+                <p>Save files (<code>.rmmzsave</code>), decompressed for editing and recompressed on download.</p>
+            </article>
+            <article class="format-card">
+                <h3>Godot and JSON</h3>
+                <p>Plain <code>.json</code> saves such as Godot's <code>JSON.stringify</code> output, kept exactly as written.</p>
+            </article>
+        </div>
+    </section>
+}
+else
+{
+    <section class="summary">
+        <div class="summary-main">
+            <h2 class="file-name" title="@_doc.FileName">@_doc.FileName</h2>
+            <div class="summary-tags">
+                <span class="badge">@_doc.Format.Name</span>
+                <span class="muted">@FormatBytes(_fileSize)</span>
+                @if (ModifiedCount > 0)
+                {
+                    <span class="badge warn">@ModifiedCount edited</span>
+                }
+                @if (_changes is not null)
+                {
+                    <span class="badge info">Compared with @_compareName</span>
+                }
+            </div>
+        </div>
+        <div class="actions">
+            <button type="button" class="button primary" @onclick="DownloadAsync" disabled="@_busy">Download</button>
+            <label class="button" title="Close this file and open another one">
+                Upload
+                <InputFile @key="_inputKey" class="file-input" OnChange="ReplaceAsync" />
+            </label>
+            @if (_changes is null)
+            {
+                <label class="button" title="Pick an earlier save of the same game to see which values increased or decreased">
+                    Compare with earlier save
+                    <InputFile @key="_inputKey" class="file-input" OnChange="CompareAsync" />
+                </label>
+            }
+            else
+            {
+                <button type="button" class="button" @onclick="ClearCompare">Stop comparing</button>
+            }
+            <button type="button" class="button ghost" @onclick="Close">Close file</button>
+        </div>
+    </section>
+
+    @if (_confirmReplace)
+    {
+        <div class="notice warn" role="alertdialog" aria-label="Unsaved edits">
+            <span>You have <strong>@ModifiedCount unsaved edit@(ModifiedCount == 1 ? "" : "s")</strong> in @_doc.FileName. Opening <strong>@_pendingName</strong> will discard them.</span>
+            <button type="button" class="button small primary" @onclick="DownloadThenReplaceAsync" disabled="@_busy">Download first, then open</button>
+            <button type="button" class="button small danger" @onclick="ConfirmReplaceAsync" disabled="@_busy">Discard edits and open</button>
+            <button type="button" class="button small" @onclick="CancelReplace">Keep editing</button>
+        </div>
+    }
+
+    @if (_busy)
+    {
+        <p class="notice">Working...</p>
+    }
+
+    @if (_error is not null)
+    {
+        <p class="notice error" role="alert">@_error</p>
+    }
+
+    @if (_baseline is not null)
+    {
+        <div class="notice compare-note">
+            <span>Compared automatically with <strong>@_baseline.FileName</strong> saved @SaveCache.Ago(_baseline.UploadedUtc, DateTimeOffset.UtcNow)@(_baseline.Edited ? " (your edited download)" : "").</span>
+            @if (_candidates.Count > 1)
+            {
+                <select @onchange="OnBaselineChanged" aria-label="Compare against">
+                    @foreach (CacheEntry c in _candidates)
+                    {
+                        <option value="@c.Id" selected="@(c.Id == _baseline.Id)">@c.FileName, @SaveCache.Ago(c.UploadedUtc, DateTimeOffset.UtcNow)@(c.Edited ? " (edited)" : "")</option>
+                    }
+                </select>
+            }
+            <button type="button" class="link" @onclick="ClearCompare">Turn off</button>
+        </div>
+    }
+    else if (_savedFirst)
+    {
+        <p class="notice">Saved. Open your next save of this game and changes will be shown automatically.</p>
+    }
+
+    <section class="stats">
+        <div class="stat"><span class="stat-value">@_stats.Values.ToString("N0")</span><span class="stat-label">Values</span></div>
+        <div class="stat"><span class="stat-value">@_stats.Integers.ToString("N0")</span><span class="stat-label">Integers</span></div>
+        <div class="stat"><span class="stat-value">@_stats.Floats.ToString("N0")</span><span class="stat-label">Decimals</span></div>
+        <div class="stat"><span class="stat-value">@_stats.Bools.ToString("N0")</span><span class="stat-label">Flags</span></div>
+        <div class="stat"><span class="stat-value">@_stats.Strings.ToString("N0")</span><span class="stat-label">Text</span></div>
+        @if (_changes is not null)
+        {
+            <div class="stat accent"><span class="stat-value">@_changes.Count.ToString("N0")</span><span class="stat-label">Changed since earlier</span></div>
+        }
+    </section>
+
+    <nav class="tabs" aria-label="Views">
+        <button type="button" class="tab @(_tab == Tab.Tree ? "on" : null)" @onclick="() => _tab = Tab.Tree">Tree</button>
+        <button type="button" class="tab @(_tab == Tab.Values ? "on" : null)" @onclick="() => _tab = Tab.Values">Values</button>
+        <button type="button" class="tab @(_tab == Tab.Edits ? "on" : null)" @onclick="() => _tab = Tab.Edits">Edits@(ModifiedCount > 0 ? $" ({ModifiedCount})" : "")</button>
+    </nav>
+
+    <section class="panel">
+        @if (_tab == Tab.Tree)
+        {
+            <form class="tree-search" @onsubmit="Search">
+                <input type="search" placeholder="Search names and values in the tree" @bind="_query" />
+                <button type="submit" class="button">Search</button>
+            </form>
+
+            @if (_results is not null)
+            {
+                <h3 class="results-title">@_results.Count result@(_results.Count == 1 ? "" : "s")@(_results.Count >= SearchLimit ? " (limit reached)" : "")</h3>
+                @foreach ((string path, SaveNode node) in _results)
+                {
+                    <NodeRow @key="node" Node="node" Label="@path" OnEdited="OnEdited" />
+                }
+                <button type="button" class="button" @onclick="ClearSearch">Back to full tree</button>
+            }
+            else
+            {
+                <div class="tree">
+                    <NodeRow @key="_doc" Node="_doc.Root" StartOpen="true" OnEdited="OnEdited" />
+                </div>
+            }
+        }
+        else if (_tab == Tab.Values)
+        {
+            <ValuesView Doc="_doc" Changes="_changes" InitialScope="@(_doc.Format is RenpyFormat ? "[0]" : null)" InitialMaxDepth="@(_doc.Format is RenpyFormat ? 2 : 0)" OnEdited="OnEdited" />
+        }
+        else
+        {
+            @if (ModifiedCount == 0)
+            {
+                <p class="empty">No edits yet. Change a value in the tree or the values table and it will be listed here.</p>
+            }
+            else
+            {
+                <table class="grid">
+                    <thead><tr><th>Value</th><th>Original</th><th>New</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach ((SaveNode node, string? old) in _originals.Where(kv => kv.Key.Value != kv.Value).Select(kv => (kv.Key, kv.Value)))
+                        {
+                            <tr @key="node">
+                                <td class="path" title="@SaveTree.Path(node)">@SaveTree.Path(node)</td>
+                                <td class="mono">@old</td>
+                                <td class="mono">@node.Value</td>
+                                <td><button type="button" class="button small" @onclick="() => Revert(node, old)">Revert</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        }
+    </section>
+}
+
+@code {
+    enum Tab { Tree, Values, Edits }
+
+    const int SearchLimit = 200;
+    const long MaxUploadBytes = 128L * 1024 * 1024;
+
+    SaveDocument? _doc;
+    SaveStats _stats = new(0, 0, 0, 0, 0);
+    Dictionary<SaveNode, string?> _originals = [];
+    Dictionary<SaveNode, Change>? _changes;
+    List<(string Path, SaveNode Node)>? _results;
+    Tab _tab = Tab.Tree;
+    string _compareName = "";
+    string? _error;
+    string? _notice;
+    bool _confirmReplace;
+    int _inputKey;
+    string _query = "";
+    bool _busy;
+    bool _needsPassword;
+    string _password = "";
+    string _pendingName = "";
+    byte[]? _pendingData;
+    int _fileSize;
+    string? _openPassword;
+    string? _code;
+    bool _autoCompare = true;
+    bool _savedFirst;
+    IReadOnlyList<CacheEntry> _entries = [];
+    IReadOnlyList<CacheEntry> _candidates = [];
+    CacheEntry? _baseline;
+
+    int ModifiedCount => _originals.Count(kv => kv.Key.Value != kv.Value);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        string? stored = await Js.InvokeAsync<string?>("riisCode.get", "riis.code");
+        if (SaveCache.CodeProblem(stored) is not null)
+        {
+            stored = SaveCache.NewCode();
+            await Js.InvokeVoidAsync("riisCode.set", "riis.code", stored);
+        }
+
+        _code = SaveCache.Normalize(stored!);
+        _autoCompare = await Js.InvokeAsync<string?>("riisCode.get", "riis.auto") != "0";
+        await RefreshEntriesAsync();
+        StateHasChanged();
+    }
+
+    async Task RefreshEntriesAsync()
+    {
+        try
+        {
+            _entries = _code is null ? [] : await Cache.ListAsync(_code);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _entries = [];
+            _error = $"The saved-files cache is unavailable: {Reason(ex)}";
+        }
+    }
+
+    async Task UseCodeAsync(string code)
+    {
+        _code = SaveCache.Normalize(code);
+        await Js.InvokeVoidAsync("riisCode.set", "riis.code", _code);
+        _candidates = [];
+        await RefreshEntriesAsync();
+    }
+
+    Task GenerateCodeAsync() => UseCodeAsync(SaveCache.NewCode());
+
+    async Task DeleteEntryAsync(string id)
+    {
+        await Cache.DeleteAsync(_code!, id);
+        await RefreshEntriesAsync();
+    }
+
+    async Task ForgetAllAsync()
+    {
+        await Cache.DeleteAllAsync(_code!);
+        _candidates = [];
+        await RefreshEntriesAsync();
+    }
+
+    async Task AutoChangedAsync(bool on)
+    {
+        _autoCompare = on;
+        await Js.InvokeVoidAsync("riisCode.set", "riis.auto", on ? "1" : "0");
+    }
+
+    // Finds the earlier save of the same game, compares against it, then caches this upload.
+    async Task AutoCompareAsync(SaveDocument doc, byte[] data)
+    {
+        if (_code is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _candidates = await Cache.SimilarAsync(_code, doc, SaveCache.HashOf(data));
+            if (_autoCompare && _candidates.Count > 0)
+            {
+                await ApplyBaselineAsync(doc, _candidates[0]);
+            }
+
+            await Cache.StoreAsync(_code, doc, data, edited: false);
+            _savedFirst = _candidates.Count == 0;
+            await RefreshEntriesAsync();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _error = $"The saved-files cache is unavailable: {Reason(ex)}";
+        }
+    }
+
+    async Task ApplyBaselineAsync(SaveDocument doc, CacheEntry entry)
+    {
+        byte[]? bytes = await Cache.ReadAsync(_code!, entry.Id);
+        if (bytes is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string? password = _openPassword;
+            Dictionary<SaveNode, Change> changes = await Task.Run(() =>
+                SaveTree.Compare(doc.Root, Registry.Load(entry.FileName, bytes, password).Root));
+            _changes = changes;
+            _baseline = entry;
+            _compareName = entry.FileName;
+            if (changes.Count > 0)
+            {
+                _tab = Tab.Values;
+            }
+        }
+        catch (SaveException)
+        {
+            _changes = null;
+            _baseline = null;
+        }
+    }
+
+    async Task OnBaselineChanged(ChangeEventArgs e)
+    {
+        CacheEntry? chosen = _candidates.FirstOrDefault(c => c.Id == e.Value?.ToString());
+        if (chosen is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        await ApplyBaselineAsync(_doc!, chosen);
+        _busy = false;
+    }
+
+    async Task LoadAsync(InputFileChangeEventArgs e)
+    {
+        if (await ReadPendingAsync(e))
+        {
+            await OpenAsync(null);
+        }
+    }
+
+    // Reads the new file before closing the current one, because closing removes this input from the page.
+    async Task ReplaceAsync(InputFileChangeEventArgs e)
+    {
+        if (!await ReadPendingAsync(e))
+        {
+            return;
+        }
+
+        if (ModifiedCount > 0)
+        {
+            _confirmReplace = true;
+            _busy = false;
+            return;
+        }
+
+        Close();
+        await OpenAsync(null);
+    }
+
+    async Task<bool> ReadPendingAsync(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        _notice = null;
+        _error = null;
+        _needsPassword = false;
+        _password = "";
+
+        try
+        {
+            _pendingData = await ReadAllAsync(e.File);
+            _pendingName = e.File.Name;
+            _inputKey++;
+            return true;
+        }
+        catch (IOException ex)
+        {
+            _error = ex.Message;
+            _busy = false;
+            return false;
+        }
+    }
+
+    Task OpenWithPasswordAsync() => OpenAsync(_password);
+
+    async Task OpenAsync(string? password)
+    {
+        _busy = true;
+        _error = null;
+        _needsPassword = false;
+
+        try
+        {
+            byte[] data = _pendingData!;
+            string name = _pendingName;
+            (SaveDocument doc, SaveStats stats) = await Task.Run(() =>
+            {
+                SaveDocument loaded = Registry.Load(name, data, password);
+                loaded.SigningKeyPath = _code is not null && SaveCache.CodeProblem(_code) is null ? Cache.KeyPathFor(_code) : null;
+                return (loaded, SaveTree.Stats(loaded.Root));
+            });
+
+            _doc = doc;
+            _stats = stats;
+            _fileSize = data.Length;
+            _pendingData = null;
+            _originals = [];
+            _changes = null;
+            _results = null;
+            _query = "";
+            _tab = Tab.Tree;
+            _baseline = null;
+            _savedFirst = false;
+            _candidates = [];
+            _openPassword = password;
+            await AutoCompareAsync(doc, data);
+        }
+        catch (PasswordRequiredException ex)
+        {
+            _needsPassword = true;
+            _error = ex.Message;
+        }
+        catch (SaveException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    async Task CompareAsync(InputFileChangeEventArgs e)
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            byte[] data = await ReadAllAsync(e.File);
+            _inputKey++;
+            string name = e.File.Name;
+            SaveDocument current = _doc!;
+            Dictionary<SaveNode, Change> changes = await Task.Run(() =>
+                SaveTree.Compare(current.Root, Registry.Load(name, data).Root));
+            _changes = changes;
+            _compareName = name;
+            _baseline = null;
+            _savedFirst = false;
+            _tab = Tab.Values;
+        }
+        catch (PasswordRequiredException)
+        {
+            _error = "The earlier save is encrypted. Comparing against encrypted files is not supported yet.";
+        }
+        catch (Exception ex) when (ex is SaveException or IOException)
+        {
+            _error = Reason(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    void ClearCompare()
+    {
+        _changes = null;
+        _baseline = null;
+    }
+
+    void Close()
+    {
+        _doc = null;
+        _confirmReplace = false;
+        _notice = null;
+        _changes = null;
+        _baseline = null;
+        _candidates = [];
+        _savedFirst = false;
+        _originals = [];
+        _results = null;
+        _error = null;
+    }
+
+    Task DownloadAsync() => DownloadCoreAsync();
+
+    async Task<bool> DownloadCoreAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            SaveDocument doc = _doc!;
+            byte[] bytes = await Task.Run(() => doc.Format.Save(doc));
+            using MemoryStream ms = new(bytes);
+            using DotNetStreamReference stream = new(ms);
+            await Js.InvokeVoidAsync("downloadFile", doc.FileName, stream);
+
+            string cacheNote = "";
+            if (_code is not null && ModifiedCount > 0)
+            {
+                // The edited file is what the player loads next, so it is the better baseline for their next upload.
+                try
+                {
+                    await Cache.StoreAsync(_code, doc, bytes, edited: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    cacheNote = $" It could not be added to your saved files: {Reason(ex)}";
+                }
+            }
+
+            string name = doc.FileName;
+            Close();
+            await RefreshEntriesAsync();
+            _notice = $"Downloaded {name} and closed it. Open your next save of this game to see what changed.{cacheNote}";
+            return true;
+        }
+        catch (Exception ex) when (ex is SaveException or FormatException or OverflowException)
+        {
+            _error = $"Could not save: {ex.Message}";
+            return false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    async Task DownloadThenReplaceAsync()
+    {
+        if (await DownloadCoreAsync())
+        {
+            await OpenAsync(null);
+        }
+    }
+
+    async Task ConfirmReplaceAsync()
+    {
+        Close();
+        await OpenAsync(null);
+    }
+
+    void CancelReplace()
+    {
+        _confirmReplace = false;
+        _pendingData = null;
+    }
+
+    void OnEdited(SaveEdit edit) => _originals.TryAdd(edit.Node, edit.Old);
+
+    void Revert(SaveNode node, string? old) => node.Value = old;
+
+    void Search()
+    {
+        string q = _query.Trim();
+        if (q.Length == 0)
+        {
+            _results = null;
+            return;
+        }
+
+        List<(string, SaveNode)> found = [];
+        Find(_doc!.Root, [], q, found);
+        _results = found;
+    }
+
+    void ClearSearch() => _results = null;
+
+    static async Task<byte[]> ReadAllAsync(IBrowserFile file)
+    {
+        using MemoryStream ms = new();
+        await using Stream s = file.OpenReadStream(MaxUploadBytes);
+        await s.CopyToAsync(ms);
+        return ms.ToArray();
+    }
+
+    static void Find(SaveNode node, List<string> trail, string q, List<(string Path, SaveNode Node)> found)
+    {
+        foreach (SaveNode child in node.Items)
+        {
+            if (found.Count >= SearchLimit)
+            {
+                return;
+            }
+
+            trail.Add(child.Name);
+            bool match = child.Name.Contains(q, StringComparison.OrdinalIgnoreCase)
+                || (child.IsLeafValue && child.Value?.Contains(q, StringComparison.OrdinalIgnoreCase) == true);
+            if (match)
+            {
+                found.Add((string.Join(" / ", trail), child));
+            }
+
+            Find(child, trail, q, found);
+            trail.RemoveAt(trail.Count - 1);
+        }
+    }
+
+    // IO errors carry server paths in their messages, so only our own messages reach the page.
+    static string Reason(Exception ex) => ex is SaveException or CacheFullException ? ex.Message : "a storage error occurred";
+
+    static string FormatBytes(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / 1024.0 / 1024.0:0.#} MB",
+    };
+}

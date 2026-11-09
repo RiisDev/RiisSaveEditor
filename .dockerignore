@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+Checks/
+SAVE_EXAMPLES/
+App_Data/
+.git/
+.vs/
+Dockerfile
+compose.yaml
+*.sln
+*.slnx

@@ -1,0 +1,52 @@
+@if (Node.IsEditable && Node.Kind == NodeKind.Bool)
+{
+    <input type="checkbox" checked="@(Node.Value == "true")" @onchange="OnBoolChanged" aria-label="@Node.Name" />
+}
+else if (Node.IsEditable)
+{
+    <input type="text" class="@(_invalid ? "invalid" : null)" value="@Node.Value" @onchange="OnTextChanged" spellcheck="false" aria-label="@Node.Name" />
+}
+else
+{
+    <span class="muted mono">@Preview</span>
+}
+
+@code {
+    bool _invalid;
+
+    [Parameter, EditorRequired] public SaveNode Node { get; set; } = null!;
+    [Parameter] public EventCallback<SaveEdit> OnEdited { get; set; }
+
+    string Preview => Node.Kind switch
+    {
+        NodeKind.Null => "null",
+        NodeKind.Binary => Node.Value!.Length > 48 ? $"{Node.Value[..48]}... ({Node.Value.Length / 2} bytes)" : $"{Node.Value} ({Node.Value.Length / 2} bytes)",
+        _ => Node.Value ?? "",
+    };
+
+    async Task OnBoolChanged(ChangeEventArgs e)
+    {
+        string old = Node.Value ?? "";
+        Node.Value = e.Value is true ? "true" : "false";
+        await OnEdited.InvokeAsync(new SaveEdit(Node, old));
+    }
+
+    async Task OnTextChanged(ChangeEventArgs e)
+    {
+        string text = e.Value?.ToString() ?? "";
+        if (Node.Kind != NodeKind.String)
+        {
+            text = text.Trim();
+        }
+
+        _invalid = !Node.IsValid(text);
+        if (_invalid)
+        {
+            return;
+        }
+
+        string old = Node.Value ?? "";
+        Node.Value = text;
+        await OnEdited.InvokeAsync(new SaveEdit(Node, old));
+    }
+}
