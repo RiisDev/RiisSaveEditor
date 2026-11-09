@@ -15,6 +15,26 @@ RiisSaveEditor is a browser-based save editor for games built with Ren'Py, Unity
 
 Saves are parsed and edited in memory, and no third-party parsing packages are used: the pickle, GVAS and Easy Save readers and writers are part of this repository. Uploaded saves are also cached on the server so later uploads can be compared automatically (see Saved files below).
 
+### Screenshots
+
+The previews below use an invented demo save.
+
+Tree view: browse and edit every value, with lazy loading and search.
+
+![Tree view](Screenshots/tree.jpg)
+
+Values view: filter by type, section or depth, and see what increased or decreased since an earlier save.
+
+![Values view with change detection](Screenshots/values.jpg)
+
+Edits tab: every change made in the session, with a one-click revert.
+
+![Edits tab](Screenshots/edits.jpg)
+
+Saved files and resume code: your earlier saves, kept for 30 days and used for automatic comparison.
+
+![Saved files and resume code](Screenshots/saved-files.jpg)
+
 ### Features
 
 - Tree view for browsing every value in the save, with lazy loading for very large files and a search box.

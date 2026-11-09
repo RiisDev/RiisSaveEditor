@@ -9,3 +9,4 @@ Dockerfile
 compose.yaml
 *.sln
 *.slnx
+Screenshots/
