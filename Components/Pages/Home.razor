@@ -6,7 +6,7 @@
 
 <PageTitle>Riis Save Editor</PageTitle>
 
-<CachePanel Code="@_code" Entries="_entries" AutoCompare="_autoCompare" OnUseCode="UseCodeAsync" OnGenerate="GenerateCodeAsync" OnDelete="DeleteEntryAsync" OnForgetAll="ForgetAllAsync" OnAutoChanged="AutoChangedAsync" />
+<CachePanel Code="@_code" Entries="_entries" AutoCompare="_autoCompare" PasswordCount="_passwordCount" OnForgetPasswords="ForgetPasswordsAsync" OnUseCode="UseCodeAsync" OnGenerate="GenerateCodeAsync" OnDelete="DeleteEntryAsync" OnForgetAll="ForgetAllAsync" OnAutoChanged="AutoChangedAsync" />
 
 @if (_doc is null)
 {
@@ -26,6 +26,24 @@
                 <input type="password" placeholder="Password" autocomplete="off" @bind="_password" />
                 <button type="submit" class="button primary">Open</button>
             </form>
+
+            <p class="muted small">
+                Don't know the password? Upload <code>global-metadata.dat</code> (from the game's
+                <code>il2cpp_data\Metadata</code> folder) or <code>Assembly-CSharp.dll</code> and it will be
+                tried automatically.
+            </p>
+            <label class="dropzone small @(_recovering ? "busy" : null)">
+                <InputFile @key="_recoveryInputKey" class="file-input" OnChange="RecoverPasswordAsync" />
+                <strong>@(_recovering ? "Trying passwords..." : "Drop global-metadata.dat or Assembly-CSharp.dll")</strong>
+            </label>
+
+            @if (_recovering && _recoveryTotal > 0)
+            {
+                <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="@_recoveryTotal" aria-valuenow="@_recoveryTried">
+                    <div class="progress-bar" style="width:@((_recoveryTried * 100 / _recoveryTotal))%"></div>
+                </div>
+                <span class="muted small">@_recoveryTried / @_recoveryTotal passwords tried</span>
+            }
         }
 
         @if (_notice is not null)
@@ -45,7 +63,7 @@
             </article>
             <article class="format-card">
                 <h3>Unity</h3>
-                <p>Easy Save 3 (<code>.es3</code>) files, including gzip and password-encrypted ones.</p>
+                <p>Easy Save 3 (<code>.es3</code>) files, including gzip and password-encrypted ones, and encrypted Save Game Free JSON saves.</p>
             </article>
             <article class="format-card">
                 <h3>Unreal Engine</h3>
@@ -235,6 +253,11 @@ else
     string _query = "";
     bool _busy;
     bool _needsPassword;
+    bool _recovering;
+    int _recoveryInputKey;
+    int _recoveryTried;
+    int _recoveryTotal;
+    int _passwordCount;
     string _password = "";
     string _pendingName = "";
     byte[]? _pendingData;
@@ -274,6 +297,7 @@ else
         try
         {
             _entries = _code is null ? [] : await Cache.ListAsync(_code);
+            _passwordCount = _code is not null && SaveCache.CodeProblem(_code) is null ? (await Cache.PasswordsAsync(_code)).Count : 0;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -302,6 +326,12 @@ else
     {
         await Cache.DeleteAllAsync(_code!);
         _candidates = [];
+        await RefreshEntriesAsync();
+    }
+
+    async Task ForgetPasswordsAsync()
+    {
+        await Cache.ForgetPasswordsAsync(_code!);
         await RefreshEntriesAsync();
     }
 
@@ -430,6 +460,60 @@ else
 
     Task OpenWithPasswordAsync() => OpenAsync(_password);
 
+    // Tries every string pulled from an uploaded global-metadata.dat / Assembly-CSharp.dll as the save's
+    // password. A match is remembered for this code and the save is opened, same as a typed password.
+    async Task RecoverPasswordAsync(InputFileChangeEventArgs e)
+    {
+        _recovering = true;
+        _error = null;
+        _recoveryTried = 0;
+        _recoveryTotal = 0;
+        StateHasChanged();
+
+        try
+        {
+            byte[] metadata = await ReadAllAsync(e.File);
+            _recoveryInputKey++;
+            byte[] data = _pendingData!;
+            string name = _pendingName;
+
+            string? found = await Task.Run(() => PasswordRecovery.Recover(metadata, candidate =>
+            {
+                try
+                {
+                    Registry.Load(name, data, candidate);
+                    return true;
+                }
+                catch (PasswordRequiredException)
+                {
+                    return false;
+                }
+            }, (tried, total) => _ = InvokeAsync(() =>
+            {
+                _recoveryTried = tried;
+                _recoveryTotal = total;
+                StateHasChanged();
+            })));
+
+            if (found is null)
+            {
+                _error = "No password in that file opened the save.";
+                return;
+            }
+
+            _password = found;
+            await OpenAsync(found);
+        }
+        catch (IOException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _recovering = false;
+        }
+    }
+
     async Task OpenAsync(string? password)
     {
         _busy = true;
@@ -440,12 +524,23 @@ else
         {
             byte[] data = _pendingData!;
             string name = _pendingName;
+            bool codeOk = _code is not null && SaveCache.CodeProblem(_code) is null;
+            IReadOnlyList<string> remembered = codeOk ? await Cache.PasswordsAsync(_code!) : [];
+            string used = password ?? "";
             (SaveDocument doc, SaveStats stats) = await Task.Run(() =>
             {
-                SaveDocument loaded = Registry.Load(name, data, password);
-                loaded.SigningKeyPath = _code is not null && SaveCache.CodeProblem(_code) is null ? Cache.KeyPathFor(_code) : null;
+                SaveDocument loaded = LoadWithRemembered(name, data, password ?? "", remembered, out used);
+                loaded.SigningKeyPath = codeOk ? Cache.KeyPathFor(_code!) : null;
                 return (loaded, SaveTree.Stats(loaded.Root));
             });
+
+            // A password that worked is kept with the code, so the next upload of this game opens directly.
+            if (codeOk && used.Length > 0 && !remembered.Contains(used))
+            {
+                await Cache.AddPasswordAsync(_code!, used);
+            }
+
+            password = used;
 
             _doc = doc;
             _stats = stats;
@@ -645,6 +740,32 @@ else
     }
 
     // IO errors carry server paths in their messages, so only our own messages reach the page.
+    // Tries the typed password first, then the ones remembered for this code. `used` is the one that worked.
+    SaveDocument LoadWithRemembered(string name, byte[] data, string password, IReadOnlyList<string> remembered, out string used)
+    {
+        try
+        {
+            used = password;
+            return Registry.Load(name, data, password);
+        }
+        catch (PasswordRequiredException) when (remembered.Count > 0)
+        {
+            foreach (string candidate in remembered)
+            {
+                try
+                {
+                    used = candidate;
+                    return Registry.Load(name, data, candidate);
+                }
+                catch (PasswordRequiredException)
+                {
+                }
+            }
+
+            throw;
+        }
+    }
+
     static string Reason(Exception ex) => ex is SaveException or CacheFullException ? ex.Message : "a storage error occurred";
 
     static string FormatBytes(long bytes) => bytes switch

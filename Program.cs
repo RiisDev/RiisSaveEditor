@@ -22,6 +22,7 @@ builder.Services.AddSingleton<ISaveFormat, RenpyFormat>();
 builder.Services.AddSingleton<ISaveFormat, RenpyPersistentFormat>();
 builder.Services.AddSingleton<ISaveFormat, RpgMakerFormat>();
 builder.Services.AddSingleton<ISaveFormat, PlainJsonFormat>();
+builder.Services.AddSingleton<ISaveFormat>(_ => new SaveGameFreeFormat(Path.Combine(dataDir, "known-passwords.txt")));
 builder.Services.AddSingleton<ISaveFormat, UnityEs3Format>();
 builder.Services.AddSingleton<SaveFormatRegistry>();
 builder.Services.AddSingleton(_ => new SaveCache(Path.Combine(dataDir, "cache"), TimeProvider.System));

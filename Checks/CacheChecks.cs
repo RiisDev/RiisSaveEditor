@@ -120,7 +120,29 @@ namespace RiisSaveEditor.Checks
 			Check("per-code size limit evicts the oldest", kept.Sum(e => e.Size) <= 20_000 && kept.Any(e => e.FileName == "three.es3") && kept.Count < 3,
 				string.Join(",", kept.Select(e => e.FileName)));
 
+			// Passwords typed for encrypted saves are remembered per code, newest first, and bounded.
+			(SaveDocument zdoc, byte[] zdata) = Load("slot.es3", Game("zeta"));
+			await cache.StoreAsync(alice, zdoc, zdata, edited: false);
+			await cache.AddPasswordAsync(alice, "first");
+			await cache.AddPasswordAsync(alice, "second");
+			await cache.AddPasswordAsync(alice, "first");
+			await cache.AddPasswordAsync(alice, "bad\npassword");
+			await cache.AddPasswordAsync(alice, new string('x', 500));
+			await cache.AddPasswordAsync(alice, "");
+			Check("a password is remembered once, newest first", (await cache.PasswordsAsync(alice)).SequenceEqual(["first", "second"]));
+			Check("another code does not see it", (await cache.PasswordsAsync(bob)).Count == 0);
+			for (int i = 0; i < 30; i++)
+			{
+				await cache.AddPasswordAsync(alice, "p" + i);
+			}
+
+			Check("at most 20 passwords are kept", (await cache.PasswordsAsync(alice)).Count == 20 && (await cache.PasswordsAsync(alice))[0] == "p29");
+			await cache.ForgetPasswordsAsync(alice);
+			Check("forgetting passwords keeps the saves", (await cache.PasswordsAsync(alice)).Count == 0 && (await cache.ListAsync(alice)).Count > 0);
+			await cache.AddPasswordAsync(alice, "again");
+
 			await cache.DeleteAllAsync(alice);
+			Check("forgetting everything removes the passwords too", (await cache.PasswordsAsync(alice)).Count == 0);
 			Check("forgetting removes everything for a code", (await cache.ListAsync(alice)).Count == 0);
 
 			Directory.Delete(dir, recursive: true);

@@ -54,6 +54,63 @@ namespace RiisSaveEditor.Saves
 			return clean.Length == 0 ? "save" : clean.Length > 120 ? clean[..120] : clean;
 		}
 
+		// Passwords a person typed for their encrypted saves are kept with their code, the same way saves are,
+		// so they are asked for once. They live in the code's folder and go when that folder does.
+		private const int MaxPasswords = 20;
+		private const int MaxPasswordLength = 200;
+
+		public async Task<IReadOnlyList<string>> PasswordsAsync(string code, CancellationToken ct = default)
+		{
+			string path = Path.Combine(DirectoryFor(code), "passwords.txt");
+			await _gate.WaitAsync(ct);
+			try
+			{
+				return File.Exists(path) ? [.. File.ReadAllLines(path)] : [];
+			}
+			finally
+			{
+				_gate.Release();
+			}
+		}
+
+		public async Task AddPasswordAsync(string code, string password, CancellationToken ct = default)
+		{
+			if (password.Length is 0 or > MaxPasswordLength || password.Any(char.IsControl))
+			{
+				return;
+			}
+
+			string dir = DirectoryFor(code);
+			await _gate.WaitAsync(ct);
+			try
+			{
+				Directory.CreateDirectory(dir);
+				string path = Path.Combine(dir, "passwords.txt");
+				List<string> all = File.Exists(path) ? [.. File.ReadAllLines(path)] : [];
+				all.Remove(password);
+				all.Insert(0, password);
+				await WriteAtomicAsync(path, Encoding.UTF8.GetBytes(string.Join('\n', all.Take(MaxPasswords))), ct);
+			}
+			finally
+			{
+				_gate.Release();
+			}
+		}
+
+		public async Task ForgetPasswordsAsync(string code, CancellationToken ct = default)
+		{
+			string path = Path.Combine(DirectoryFor(code), "passwords.txt");
+			await _gate.WaitAsync(ct);
+			try
+			{
+				File.Delete(path);
+			}
+			finally
+			{
+				_gate.Release();
+			}
+		}
+
 		public string KeyPathFor(string code) => Path.Combine(DirectoryFor(code), "renpy-signing.key");
 
 		public static string? CodeProblem(string? code) =>

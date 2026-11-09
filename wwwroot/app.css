@@ -147,6 +147,20 @@ select { cursor: pointer; }
 .dropzone strong { font-size: 1.15rem; }
 .dropzone span { color: var(--muted); }
 .dropzone.busy { opacity: .7; }
+.dropzone.small { padding: 1.4rem 1rem; }
+
+.progress {
+    height: 8px;
+    margin-top: .8rem;
+    border-radius: 999px;
+    background: var(--panel-2);
+    overflow: hidden;
+}
+.progress-bar {
+    height: 100%;
+    background: var(--accent);
+    transition: width .15s ease-out;
+}
 
 .password { display: flex; gap: .5rem; justify-content: center; margin-top: 1rem; }
 .hero .notice { margin-top: 1rem; text-align: left; }

@@ -4,10 +4,12 @@ using RiisSaveEditor.Saves;
 // Usage: dotnet run --project Checks -- <SAVE_EXAMPLES dir> [--only text] [--sig]
 // Loads every example, saves it untouched and requires the bytes to match the original.
 string root = args.Length > 0 ? args[0] : Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "SAVE_EXAMPLES");
+int passwordIndex = Array.IndexOf(args, "--password");
+string? password = passwordIndex >= 0 ? args[passwordIndex + 1] : null;
 int onlyIndex = Array.IndexOf(args, "--only");
 string? only = onlyIndex >= 0 ? args[onlyIndex + 1] : null;
 
-SaveFormatRegistry registry = new([new GvasFormat(), new RenpyFormat(), new RenpyPersistentFormat(), new RpgMakerFormat(), new PlainJsonFormat(), new UnityEs3Format()]);
+SaveFormatRegistry registry = new([new GvasFormat(), new RenpyFormat(), new RenpyPersistentFormat(), new RpgMakerFormat(), new PlainJsonFormat(), new SaveGameFreeFormat(), new UnityEs3Format()]);
 int failures = 0;
 
 if (args.Contains("--write-modified"))
@@ -34,12 +36,67 @@ if (args.Contains("--write-fixture"))
     return 0;
 }
 
+int recoverIndex = Array.IndexOf(args, "--recover");
+if (recoverIndex >= 0)
+{
+    byte[] saveData = File.ReadAllBytes(args[recoverIndex + 1]);
+    byte[] metadata = File.ReadAllBytes(args[recoverIndex + 2]);
+    string saveName = Path.GetFileName(args[recoverIndex + 1]);
+
+    try
+    {
+        registry.Load(saveName, saveData);
+        Console.WriteLine("Opened with no password (not encrypted, or no password needed).");
+        return 0;
+    }
+    catch (PasswordRequiredException)
+    {
+        Console.WriteLine("Confirmed encrypted; recovering password...");
+    }
+
+    List<string> candidates = [.. PasswordRecovery.ExtractCandidateStrings(metadata)];
+    Console.WriteLine($"Extracted {candidates.Count} candidate strings.");
+
+    int expectIndex = Array.IndexOf(args, "--expect");
+    if (expectIndex >= 0)
+    {
+        string expect = args[expectIndex + 1];
+        int at = candidates.IndexOf(expect);
+        Console.WriteLine(at >= 0
+            ? $"Expected password \"{expect}\" found in candidates at index {at}."
+            : $"Expected password \"{expect}\" was NOT extracted.");
+
+        if (args.Contains("--extract-only"))
+        {
+            return 0;
+        }
+    }
+
+    string? found = PasswordRecovery.Recover(metadata, candidate =>
+    {
+        try
+        {
+            registry.Load(saveName, saveData, candidate);
+            return true;
+        }
+        catch (PasswordRequiredException)
+        {
+            return false;
+        }
+    });
+
+    Console.WriteLine(found is null ? "No candidate opened the save." : $"RECOVERED PASSWORD: \"{found}\"");
+    return 0;
+}
+
 int listIndex = Array.IndexOf(args, "--list");
 IEnumerable<string> files = listIndex >= 0
     ? File.ReadAllLines(args[listIndex + 1]).Where(l => l.Length > 0)
     : Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories).Order();
 
 failures += SecurityChecks.Run(registry, Path.GetFullPath(Path.Combine(root, "..", "Checks", "fixtures")));
+failures += EncryptedJsonChecks.Run();
+failures += PasswordRecoveryChecks.Run();
 
 if (listIndex < 0 && only is null)
 {
@@ -57,7 +114,7 @@ foreach (string file in files)
     byte[] original = File.ReadAllBytes(file);
     try
     {
-        SaveDocument doc = registry.Load(Path.GetFileName(file), original);
+        SaveDocument doc = registry.Load(Path.GetFileName(file), original, password);
         byte[] saved = doc.Format.Save(doc);
         bool same = saved.AsSpan().SequenceEqual(original);
         if (!same && doc.Format is RenpyPersistentFormat)
@@ -86,7 +143,7 @@ foreach (string file in files)
 
         if (args.Contains("--edit"))
         {
-            string? edit = EditRoundTrip(registry, doc, Path.GetFileName(file));
+            string? edit = EditRoundTrip(registry, doc, Path.GetFileName(file), password);
             Console.WriteLine("     " + edit);
             failures += edit!.StartsWith("MISMATCH") ? 1 : 0;
         }
@@ -103,7 +160,7 @@ foreach (string file in files)
             failures += extra.StartsWith("MISMATCH") ? 1 : 0;
         }
 
-        string compare = CompareCheck(registry, Path.GetFileName(file), original);
+        string compare = CompareCheck(registry, Path.GetFileName(file), original, password);
         Console.WriteLine("     " + compare);
         failures += compare.StartsWith("MISMATCH") ? 1 : 0;
 
@@ -142,7 +199,7 @@ static int Count(SaveNode n)
     return total;
 }
 
-static string? EditRoundTrip(SaveFormatRegistry registry, SaveDocument doc, string fileName)
+static string? EditRoundTrip(SaveFormatRegistry registry, SaveDocument doc, string fileName, string? password = null)
 {
     SaveNode? target = Flatten(doc.Root, "").Select(x => x.Node).FirstOrDefault(n => n.IsEditable && n.Kind != NodeKind.Bool);
     if (target is null)
@@ -159,7 +216,7 @@ static string? EditRoundTrip(SaveFormatRegistry registry, SaveDocument doc, stri
 
     List<string> expected = [.. Flatten(doc.Root, "").Select(x => x.Path + "=" + x.Node.Value)];
     byte[] saved = doc.Format.Save(doc);
-    SaveDocument reloaded = registry.Load(fileName, saved);
+    SaveDocument reloaded = registry.Load(fileName, saved, password);
     List<string> actual = [.. Flatten(reloaded.Root, "").Select(x => x.Path + "=" + x.Node.Value)];
     return expected.SequenceEqual(actual)
         ? $"edit kept ({target.Name} = {target.Value}, {saved.Length} bytes)"
@@ -243,10 +300,10 @@ static string LegacyCheck(SaveFormatRegistry registry, string name, SaveDocument
         : "MISMATCH legacy layout is not byte-exact on re-save";
 }
 
-static string CompareCheck(SaveFormatRegistry registry, string name, byte[] original)
+static string CompareCheck(SaveFormatRegistry registry, string name, byte[] original, string? password = null)
 {
-    SaveDocument now = registry.Load(name, original);
-    SaveDocument before = registry.Load(name, original);
+    SaveDocument now = registry.Load(name, original, password);
+    SaveDocument before = registry.Load(name, original, password);
     if (SaveTree.Compare(now.Root, before.Root).Count != 0)
     {
         return "MISMATCH identical files report changes";
