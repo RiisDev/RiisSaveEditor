@@ -17,23 +17,35 @@ Saves are parsed and edited in memory, and no third-party parsing packages are u
 
 ### Screenshots
 
-The previews below use an invented demo save.
+The previews below use an invented demo save. Click a title to expand it.
 
-Tree view: browse and edit every value, with lazy loading and search.
+<details>
+<summary>Tree view: browse and edit every value, with lazy loading and search</summary>
 
 ![Tree view](Screenshots/tree.jpg)
 
-Values view: filter by type, section or depth, and see what increased or decreased since an earlier save.
+</details>
+
+<details>
+<summary>Values view: filter by type, section or depth, and see what increased or decreased since an earlier save</summary>
 
 ![Values view with change detection](Screenshots/values.jpg)
 
-Edits tab: every change made in the session, with a one-click revert.
+</details>
+
+<details>
+<summary>Edits tab: every change made in the session, with a one-click revert</summary>
 
 ![Edits tab](Screenshots/edits.jpg)
 
-Saved files and resume code: your earlier saves, kept for 30 days and used for automatic comparison.
+</details>
+
+<details>
+<summary>Saved files and resume code: your earlier saves, kept for 30 days and used for automatic comparison</summary>
 
 ![Saved files and resume code](Screenshots/saved-files.jpg)
+
+</details>
 
 ### Features
 
