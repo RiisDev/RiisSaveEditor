@@ -97,6 +97,7 @@ IEnumerable<string> files = listIndex >= 0
 failures += SecurityChecks.Run(registry, Path.GetFullPath(Path.Combine(root, "..", "Checks", "fixtures")));
 failures += EncryptedJsonChecks.Run();
 failures += PasswordRecoveryChecks.Run();
+failures += RenpyCheatsChecks.Run();
 
 if (listIndex < 0 && only is null)
 {

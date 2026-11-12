@@ -47,6 +47,13 @@ The previews below use an invented demo save. Click a title to expand it.
 
 </details>
 
+<details>
+<summary>RenPy Cheat Builder: tick the enablers you want and download one generated .rpy file</summary>
+
+![RenPy Cheat Builder](Screenshots/cheat-builder.jpg)
+
+</details>
+
 ### Features
 
 - Tree view for browsing every value in the save, with lazy loading for very large files and a search box.
@@ -55,7 +62,8 @@ The previews below use an invented demo save. Click a title to expand it.
 - Edits tab that lists every change made in the session, with a one-click revert.
 - Edits are written back byte-for-byte: only the values you changed are re-encoded, everything else in the file is preserved.
 - Automatic comparison: upload a save and it is compared with your previous save of the same game, with no extra step.
-- Password prompt for encrypted saves, plus an optional private list of known game passwords so those saves open without a prompt.
+- Ren'Py cheat file builder at `/renpy-cheats`: tick the console, quick save and load, skip and rollback enablers and download a single `zz-riis-cheats.rpy` for the game's `game` folder. Delete the file to undo it.
+- Password prompt for encrypted saves, plus a list of known game passwords (`App_Data/known-passwords.txt`) so those saves open without a prompt. Passwords you type or recover are added to that list automatically.
 - Password recovery for encrypted Unity saves: upload the game's `global-metadata.dat` or `Assembly-CSharp.dll` (up to 128 MB) and every string found in it is tried as the password, in parallel, with a live progress bar. A password that works is remembered under your resume code like a typed one.
 
 ### Supported formats
@@ -64,16 +72,16 @@ The previews below use an invented demo save. Click a title to expand it.
 | --- | --- | --- |
 | Ren'Py | `.save` and `persistent` | Python 2 and Python 3 pickles, protocols 2 to 5. Edited saves are re-signed with a key owned by the editor. Round-trip tested on 4,968 saves and persistent files from Ren'Py 6.99 to 8.4. |
 | Unity | Easy Save 3 `.es3` | Plain JSON, gzip, and AES-encrypted files. The original formatting quirks are reproduced so unedited files round-trip exactly. |
-| Unity | Save Game Free | JSON saves wrapped in base64 and encrypted with a 256-bit-block Rijndael cipher (PBKDF2-SHA1 key), as written by the Save Game Free asset. The password is a per-game secret, so it is not in the code: put the passwords of the games you host, one per line, in `App_Data/known-passwords.txt`, type the password when asked, or recover it from the game's own files (see below). Unedited saves are returned byte-for-byte; edited saves are re-encrypted with a fresh salt and IV. |
+| Unity | Save Game Free | JSON saves wrapped in base64 and encrypted with a 256-bit-block Rijndael cipher (PBKDF2-SHA1 key), as written by the Save Game Free asset. The password is a per-game secret, so it is not in the code: add the passwords of the games you host, one per line, to `App_Data/known-passwords.txt`, type the password when asked (it is added to that file for you), or recover it from the game's own files (see below). Unedited saves are returned byte-for-byte; edited saves are re-encrypted with a fresh salt and IV. |
 | Unreal Engine | GVAS `.sav` | UE 5.5 and later layout verified on UE 5.7 saves. The older layout (UE 4 to 5.4) is implemented and self-tested. |
 | RPG Maker MZ | `.rmmzsave` | The zlib-compressed JSON is unpacked for editing. An unedited file is returned byte-for-byte; an edited file is recompressed, so the compressed bytes differ but the game reads it normally. MV `.rpgsave` is not supported. |
 | Godot and plain JSON | `.json` | Only edited values are rewritten; indentation, key order and number spelling are untouched. |
 
 Saved files. Every save you open (and every edited file you download) is kept on the server so your next upload of the same game can be compared against it. A cached file expires 30 days after it was last used; each time it is used as a baseline the 30 days start again. An hourly job deletes expired files, and size limits apply (5 snapshots per game, 200 MB per code, 5 GB overall).
 
-There are no accounts. The first visit generates a random GUID, stored in the browser (`localStorage`), and its hash names the folder holding your files. Anyone who has the code can see the files saved under it, and it cannot be guessed. Paste the code into another browser or device to see the same files there, or generate a new one at any time. The "Saved files and resume code" panel lists, deletes and forgets the cached files. A password you type for an encrypted save is remembered under your code the same way, so the next upload of that game opens without asking; "Forget saved passwords" in the panel removes them, and forgetting all saved files removes them too. An earlier save is matched to a new upload by overlap of the variable and property names, and a downloaded edited save becomes the preferred baseline for the next upload.
+There are no accounts. The first visit generates a random GUID, stored in the browser (`localStorage`), and its hash names the folder holding your files. Anyone who has the code can see the files saved under it, and it cannot be guessed. Paste the code into another browser or device to see the same files there, or generate a new one at any time. The "Saved files and resume code" panel lists, deletes and forgets the cached files. A password you type for an encrypted save is remembered under your code the same way, so the next upload of that game opens without asking; "Forget saved passwords" in the panel removes them, and forgetting all saved files removes them too. The password is also appended to `App_Data/known-passwords.txt`, which is shared by every code, so the same game opens for anyone using this instance and forgetting a code does not remove it from that file; edit the file to remove it. An earlier save is matched to a new upload by overlap of the variable and property names, and a downloaded edited save becomes the preferred baseline for the next upload.
 
-Password recovery. When an encrypted Unity save asks for a password you don't know, drop the game's `global-metadata.dat` (from `<Game>_Data/il2cpp_data/Metadata`) or `Assembly-CSharp.dll` onto the second box that appears, up to 128 MB. Every printable string in the file (and, for the DLL, every UTF-16 string in its managed string heap) is tried as the password in parallel across all CPU cores, with a progress bar while it runs. This never leaves the server: nothing is uploaded anywhere else, and the uploaded file itself is not kept. A password that works is remembered under your resume code exactly as a typed one would be, so you only need to do this once per game.
+Password recovery. When an encrypted Unity save asks for a password you don't know, drop the game's `global-metadata.dat` (from `<Game>_Data/il2cpp_data/Metadata`) or `Assembly-CSharp.dll` onto the second box that appears, up to 128 MB. Every printable string in the file (and, for the DLL, every UTF-16 string in its managed string heap) is tried as the password in parallel across all CPU cores, with a progress bar while it runs. This never leaves the server: nothing is uploaded anywhere else, and the uploaded file itself is not kept. A password that works is remembered under your resume code exactly as a typed one would be, and it is also added to `App_Data/known-passwords.txt`, so you only need to do this once per game.
 
 Ren'Py signing. Ren'Py 7.6 and later sign each save. An edited save cannot keep the original signature, so it is re-signed with a key that belongs to your resume code. Ren'Py then shows its "save created on another device" prompt once, and accepting it trusts that key for later saves. Every code has its own key, so a save edited under someone else's code is never trusted by your game.
 
@@ -172,9 +180,13 @@ Linux downloads are `.tar.gz`, Windows downloads are `.zip`. Keep each download'
 
 Setup: add a repository secret named `RELEASE_TOKEN` holding a personal access token with the `contents: write` permission on this repository, so the release is created by your account instead of `github-actions`. The container image uses the built-in `GITHUB_TOKEN`.
 
+## Credits
+
+- Ren'Py cheat file snippets (console, quick save and load, skip, rollback) come from UnRen. Credit: VepsrP (329951) Updated UnRen, Sam (7899) Original Script, and joelurmel (5474051) another updated variant, from f95zone.
+
 ## AI Disclosure
 
-Parts of this project were developed with AI assistance. Below is a summary of where it was used:
+Most of this project were developed with AI assistance. Below is a summary of where it was used:
 
 - Saves/Pickle.cs, Saves/RenpyFormat.cs - Python pickle reader and in-place writer, Ren'Py save and persistent formats, signing, protocol 4 and 5 frame handling
 - Saves/GvasFormat.cs - Unreal GVAS reader and writer for both property tag layouts
@@ -183,6 +195,7 @@ Parts of this project were developed with AI assistance. Below is a summary of w
 - Saves/PasswordRecovery.cs - string extraction and parallel brute-force password recovery from game metadata/assembly files
 - Saves/JsonText.cs, Saves/PlainJsonFormat.cs, Saves/RpgMakerFormat.cs - span-preserving JSON editor, Godot JSON saves and RPG Maker MZ saves
 - Saves/SaveFormat.cs, Saves/SaveTree.cs - shared node model, format registry, statistics and compare logic
+- Saves/RenpyCheats.cs, Components/Pages/CheatPage.razor - Ren'Py cheat file generator (console, quick save, skip and rollback enablers based on the UnRen snippets, see Credits)
 - Saves/SaveCache.cs, CacheCleanup.cs - 30-day saved-files cache, GUID resume codes, similarity matching and expiry
 - Components and wwwroot - Blazor pages, tree and values views, saved-files panel, dashboard layout and styling
 - Checks - round-trip, edit, encryption, legacy layout, compare, cache and security regression checks

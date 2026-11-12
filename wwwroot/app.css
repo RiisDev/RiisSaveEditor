@@ -40,34 +40,37 @@ code { background: var(--panel-2); padding: .05rem .35rem; border-radius: 4px; f
 .muted { color: var(--muted); }
 .spacer { flex: 1; }
 
-/* App bar */
+/* App bar: floating centred pill, same look as irisapp.ca */
 
-.app-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: .7rem 1.5rem;
-    background: rgba(23, 26, 33, .85);
+.nav-container {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 999;
+    max-width: calc(100vw - 24px);
+    padding: 8px 10.4px;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
     backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--line);
-    position: sticky;
-    top: 0;
-    z-index: 20;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
 }
 
-.brand { display: flex; align-items: center; gap: .65rem; }
-.brand h1 { font-size: 1.05rem; font-weight: 650; letter-spacing: .2px; }
-.brand-mark {
-    width: 22px;
-    height: 22px;
-    border-radius: 6px;
-    background: linear-gradient(135deg, var(--accent), #22d3ee);
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, .12) inset;
+.nav-links { display: flex; gap: 4px; }
+.nav-links a {
+    padding: 7.2px 13.6px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: .18s;
 }
-.tagline { color: var(--muted); font-size: .85rem; }
+.nav-links a:hover { color: var(--text); background: var(--panel-2); }
+.nav-links a.active { color: var(--text); background: var(--panel-2); box-shadow: 0 0 0 1px var(--line-strong) inset; }
 
-main { max-width: 1400px; margin: 0 auto; padding: 1.25rem 1.5rem 4rem; }
+main { max-width: 1400px; margin: 0 auto; padding: 5.5rem 1.5rem 4rem; }
 
 /* Buttons and inputs */
 
@@ -403,3 +406,14 @@ select { cursor: pointer; }
 .compare-note select { max-width: 24rem; }
 .notice.done { border-left-color: var(--up); color: var(--text); }
 .notice.warn { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; border-left-color: var(--warn); color: var(--text); }
+
+.cheat-options { display: grid; gap: .6rem; width: fit-content; margin: 1.25rem auto; text-align: left; }
+.cheat-options label { display: flex; align-items: center; gap: .6rem; cursor: pointer; }
+.cheat-preview { text-align: left; background: #11141a; border: 1px solid var(--line); padding: 1rem 1.25rem; border-radius: var(--radius); overflow-x: auto; margin: 1rem 0; line-height: 1.55; font-size: .85rem; }
+.cheat-preview code { background: none; padding: 0; font-size: inherit; white-space: pre; }
+.tk-comment { color: #6b7488; font-style: italic; }
+.tk-string { color: #a5d6a7; }
+.tk-number { color: #fbbf24; }
+.tk-keyword { color: #c792ea; }
+.tk-literal { color: #f78c6c; }
+.tk-function { color: #82aaff; }

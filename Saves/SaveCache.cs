@@ -28,7 +28,8 @@ namespace RiisSaveEditor.Saves
 		string root,
 		TimeProvider clock,
 		long maxBytesPerCode = 200L * 1024 * 1024,
-		long maxTotalBytes = 5L * 1024 * 1024 * 1024)
+		long maxTotalBytes = 5L * 1024 * 1024 * 1024,
+		string? knownPasswordsPath = null)
 	{
 		public static readonly TimeSpan Retention = TimeSpan.FromDays(30);
 
@@ -90,11 +91,31 @@ namespace RiisSaveEditor.Saves
 				all.Remove(password);
 				all.Insert(0, password);
 				await WriteAtomicAsync(path, Encoding.UTF8.GetBytes(string.Join('\n', all.Take(MaxPasswords))), ct);
+					await AppendKnownPasswordAsync(password, ct);
 			}
 			finally
 			{
 				_gate.Release();
 			}
+		}
+
+		// Also kept in the operator-wide known-passwords file, so the same game opens for every code. Caller holds _gate.
+		private async Task AppendKnownPasswordAsync(string password, CancellationToken ct)
+		{
+			if (knownPasswordsPath is null)
+			{
+				return;
+			}
+
+			string text = File.Exists(knownPasswordsPath) ? await File.ReadAllTextAsync(knownPasswordsPath, ct) : "";
+			if (text.Split('\n').Any(l => l.TrimEnd('\r') == password))
+			{
+				return;
+			}
+
+			Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(knownPasswordsPath))!);
+			string separator = text.Length > 0 && !text.EndsWith('\n') ? "\n" : "";
+			await File.AppendAllTextAsync(knownPasswordsPath, separator + password + "\n", ct);
 		}
 
 		public async Task ForgetPasswordsAsync(string code, CancellationToken ct = default)

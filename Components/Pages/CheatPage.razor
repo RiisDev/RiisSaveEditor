@@ -1,0 +1,37 @@
+@page "/renpy-cheats"
+@rendermode InteractiveServer
+@inject IJSRuntime Js
+
+<PageTitle>RenPy Cheat Builder</PageTitle>
+
+<section class="hero">
+    <h2>RenPy Cheat Builder</h2>
+    <p class="lead">Pick what to enable and download one <code>@RenpyCheats.FileName</code>. Drop it into the game's <code>game</code> folder. It works without unpacking the game and deleting the file undoes it.</p>
+
+    <div class="cheat-options">
+        <label><input type="checkbox" @bind="_console" /> Console and developer menu (Shift+O)</label>
+        <label><input type="checkbox" @bind="_quick" /> Quick save and load (F5 / F9)</label>
+        <label><input type="checkbox" @bind="_skip" /> Skip unseen text (Tab / Ctrl)</label>
+        <label><input type="checkbox" @bind="_rollback" /> Rollback with scroll wheel or Page Up</label>
+    </div>
+
+    <p class="muted small">Snippets from UnRen. Credit: VepsrP (329951) Updated UnRen, Sam (7899) Original Script, and joelurmel (5474051) another updated variant, from f95zone.</p>
+
+    <pre class="cheat-preview"><code>@((MarkupString)RenpyCheats.Highlight(Script))</code></pre>
+
+    <button type="button" class="button primary" @onclick="DownloadAsync" disabled="@(!Options.Any)">Download @RenpyCheats.FileName</button>
+</section>
+
+@code {
+    bool _console = true, _quick = true, _skip = true, _rollback = true;
+
+    CheatOptions Options => new(_console, _quick, _skip, _rollback);
+    string Script => RenpyCheats.Build(Options);
+
+    async Task DownloadAsync()
+    {
+        using MemoryStream ms = new(System.Text.Encoding.UTF8.GetBytes(Script));
+        using DotNetStreamReference stream = new(ms);
+        await Js.InvokeVoidAsync("downloadFile", RenpyCheats.FileName, stream);
+    }
+}
