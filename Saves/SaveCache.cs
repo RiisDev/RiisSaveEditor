@@ -108,7 +108,8 @@ namespace RiisSaveEditor.Saves
 			}
 
 			string text = File.Exists(knownPasswordsPath) ? await File.ReadAllTextAsync(knownPasswordsPath, ct) : "";
-			if (text.Split('\n').Any(l => l.TrimEnd('\r') == password))
+			string[] lines = [.. text.Split('\n').Select(l => l.TrimEnd('\r'))];
+			if (lines.Contains(password) || lines.Count(l => l.Length > 0 && l[0] != '#') >= KnownPasswords.Max)
 			{
 				return;
 			}

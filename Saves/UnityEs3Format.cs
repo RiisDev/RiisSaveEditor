@@ -1,38 +1,70 @@
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 
 namespace RiisSaveEditor.Saves
 {
 	// Easy Save 3 files are JSON, optionally gzipped and then AES-encrypted. The encryption layer is
 // AES-128-CBC with the key derived from the game's password (PBKDF2-SHA1, 100 iterations) and the
-// 16 byte IV stored at the start of the file doubling as the PBKDF2 salt.
-	public sealed class UnityEs3Format : ISaveFormat
+// 16 byte IV stored at the start of the file doubling as the PBKDF2 salt. The JSON layer goes through
+// JsonText, so only edited values are rewritten and an untouched file is returned byte-for-byte.
+	public sealed class UnityEs3Format(string? knownPasswordsPath = null) : ISaveFormat
 	{
-		private sealed record State(bool Bom, string Trailing, string? Password, bool Gzip);
+		private sealed record State(byte[] Original, bool Bom, string Text, string? Password, bool Gzip);
 
 		private static readonly byte[] BomBytes = [0xEF, 0xBB, 0xBF];
+		private static readonly UTF8Encoding Strict = new(false, true);
 
 		public string Name => "Unity (Easy Save 3)";
 
 		public bool CanLoad(string fileName, ReadOnlySpan<byte> data) =>
 			LooksLikeJson(data) || IsGzip(data) || (data.Length >= 32 && data.Length % 16 == 0);
 
+		// Without a typed password an encrypted file tries the operator's known passwords. A given password is
+		// tried alone, so password recovery pays for one derivation per candidate.
 		public SaveDocument Load(string fileName, byte[] data, string? password = null)
+		{
+			// The random IV of an encrypted file starts with '{' or the gzip magic about 1 time in 128, so a
+			// plain read that fails on a cipher-shaped file falls through to decryption.
+			if (LooksLikeJson(data) || IsGzip(data))
+			{
+				try
+				{
+					return LoadWith(fileName, data, null, encrypted: false);
+				}
+				catch (SaveException) when (data.Length >= 32 && data.Length % 16 == 0 && !System.Text.Unicode.Utf8.IsValid(data))
+				{
+				}
+			}
+
+			if (!string.IsNullOrEmpty(password))
+			{
+				return LoadWith(fileName, data, password, encrypted: true);
+			}
+
+			foreach (string known in KnownPasswords.Read(knownPasswordsPath))
+			{
+				try
+				{
+					return LoadWith(fileName, data, known, encrypted: true);
+				}
+				catch (PasswordRequiredException)
+				{
+				}
+			}
+
+			throw new PasswordRequiredException("This file looks encrypted. Enter its password to open it.");
+		}
+
+		private SaveDocument LoadWith(string fileName, byte[] data, string? password, bool encrypted)
 		{
 			byte[] bytes = data;
 			string? usedPassword = null;
 			bool gzip = false;
 
-			if (!LooksLikeJson(bytes) && !IsGzip(bytes))
+			if (encrypted)
 			{
-				if (string.IsNullOrEmpty(password))
-				{
-					throw new PasswordRequiredException("This file looks encrypted. Enter its password to open it.");
-				}
-
-				bytes = Decrypt(data, password);
+				bytes = Decrypt(data, password!);
 				usedPassword = password;
 			}
 
@@ -56,16 +88,14 @@ namespace RiisSaveEditor.Saves
 			}
 
 			bool bom = bytes.AsSpan().StartsWith(BomBytes);
-			string text = Encoding.UTF8.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
-			string trailing = text[text.TrimEnd().Length..];
-
 			try
 			{
-				using JsonDocument json = JsonDocument.Parse(text);
-				return new SaveDocument(this, fileName, ToNode(fileName, json.RootElement), new State(bom, trailing, usedPassword, gzip));
+				string text = Strict.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
+				return new SaveDocument(this, fileName, JsonText.Parse(text, fileName), new State(data, bom, text, usedPassword, gzip));
 			}
-			catch (JsonException e)
+			catch (Exception e) when (e is SaveException or DecoderFallbackException)
 			{
+				// A wrong password can still decrypt to valid padding; garbage text then means the password, not the file.
 				throw Failure(usedPassword) is PasswordRequiredException p ? p : new SaveException($"Invalid JSON: {e.Message}");
 			}
 		}
@@ -73,13 +103,14 @@ namespace RiisSaveEditor.Saves
 		public byte[] Save(SaveDocument document)
 		{
 			State state = (State)document.State!;
-			StringBuilder sb = new();
-			WriteNode(sb, document.Root, 0);
-			sb.Append(state.Trailing);
+			string text = JsonText.Write(state.Text, document.Root);
+			if (text == state.Text)
+			{
+				return state.Original;
+			}
 
-			byte[] body = Encoding.UTF8.GetBytes(sb.ToString());
-			byte[] json = state.Bom ? [.. BomBytes, .. body] : body;
-			return Wrap(json, state.Password, state.Gzip);
+			byte[] body = Encoding.UTF8.GetBytes(text);
+			return Wrap(state.Bom ? [.. BomBytes, .. body] : body, state.Password, state.Gzip);
 		}
 
 		internal static byte[] Wrap(byte[] json, string? password, bool gzip)
@@ -140,129 +171,6 @@ namespace RiisSaveEditor.Saves
 			}
 
 			return i < data.Length && data[i] == (byte)'{';
-		}
-
-		private static SaveNode ToNode(string name, JsonElement e)
-		{
-			switch (e.ValueKind)
-			{
-				case JsonValueKind.Object:
-					SaveNode obj = new(name, NodeKind.Object);
-					foreach (JsonProperty p in e.EnumerateObject())
-					{
-						obj.Children.Add(ToNode(p.Name, p.Value));
-					}
-
-					return obj;
-				case JsonValueKind.Array:
-					SaveNode arr = new(name, NodeKind.Array);
-					foreach (JsonElement item in e.EnumerateArray())
-					{
-						arr.Children.Add(ToNode($"[{arr.Children.Count}]", item));
-					}
-
-					return arr;
-				case JsonValueKind.String:
-					return new SaveNode(name, NodeKind.String, e.GetString());
-				case JsonValueKind.Number:
-					string raw = e.GetRawText();
-					bool integral = raw.AsSpan().IndexOfAny('.', 'e', 'E') < 0;
-					return new SaveNode(name, integral ? NodeKind.Integer : NodeKind.Float, raw);
-				case JsonValueKind.True:
-					return new SaveNode(name, NodeKind.Bool, "true");
-				case JsonValueKind.False:
-					return new SaveNode(name, NodeKind.Bool, "false");
-				case JsonValueKind.Undefined:
-				case JsonValueKind.Null:
-				default:
-					return new SaveNode(name, NodeKind.Null);
-			}
-		}
-
-		private static void WriteNode(StringBuilder sb, SaveNode n, int depth)
-		{
-			switch (n.Kind)
-			{
-				case NodeKind.Object:
-					if (!n.HasChildren)
-					{
-						sb.Append("{}");
-						return;
-					}
-
-					sb.Append("{\r\n");
-					for (int i = 0; i < n.Children.Count; i++)
-					{
-						if (i > 0)
-						{
-							sb.Append(",\r\n");
-						}
-
-						sb.Append('\t', depth + 1);
-						WriteString(sb, n.Children[i].Name);
-						sb.Append(" : ");
-
-						// ES3 writes the payload of a typed entry one level shallower than normal.
-						bool payload = n.Children[i].Name == "value" && n.Children[0].Name == "__type";
-						WriteNode(sb, n.Children[i], payload ? depth : depth + 1);
-					}
-
-					sb.Append("\r\n").Append('\t', depth).Append('}');
-					return;
-				case NodeKind.Array:
-					if (!n.HasChildren)
-					{
-						sb.Append("[]");
-						return;
-					}
-
-					sb.Append("[\r\n").Append('\t', depth + 1);
-					for (int i = 0; i < n.Children.Count; i++)
-					{
-						if (i > 0)
-						{
-							sb.Append(',');
-						}
-
-						WriteNode(sb, n.Children[i], depth + 1);
-					}
-
-					sb.Append("\r\n").Append('\t', depth).Append(']');
-					return;
-				case NodeKind.String:
-					WriteString(sb, n.Value ?? "");
-					return;
-				case NodeKind.Null:
-					sb.Append("null");
-					return;
-				default:
-					sb.Append(n.Value);
-					return;
-			}
-		}
-
-		// ES3 escapes the forward slash and leaves non-ASCII text as-is.
-		private static void WriteString(StringBuilder sb, string s)
-		{
-			sb.Append('"');
-			foreach (char c in s)
-			{
-				switch (c)
-				{
-					case '"': sb.Append("\\\""); break;
-					case '\\': sb.Append("\\\\"); break;
-					case '/': sb.Append("\\/"); break;
-					case '\b': sb.Append("\\b"); break;
-					case '\f': sb.Append("\\f"); break;
-					case '\n': sb.Append("\\n"); break;
-					case '\r': sb.Append("\\r"); break;
-					case '\t': sb.Append("\\t"); break;
-					case < ' ': sb.Append("\\u").Append(((int)c).ToString("x4")); break;
-					default: sb.Append(c); break;
-				}
-			}
-
-			sb.Append('"');
 		}
 	}
 }

@@ -19,9 +19,9 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
 
     sealed record TextShape(Encoding Encoding, byte[] Preamble)
     {
-        public static TextShape Detect(byte[] bytes, out int skip)
+        public static TextShape Detect(ReadOnlySpan<byte> bytes, out int skip)
         {
-            if (bytes.AsSpan().StartsWith("﻿"u8))
+            if (bytes.StartsWith("﻿"u8))
             {
                 skip = 3;
                 return new TextShape(new UTF8Encoding(false, true), [0xEF, 0xBB, 0xBF]);
@@ -43,7 +43,7 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
             return new TextShape(new UTF8Encoding(false, true), []);
         }
 
-        public string Decode(byte[] bytes, int skip) => Encoding.GetString(bytes, skip, bytes.Length - skip);
+        public string Decode(ReadOnlySpan<byte> bytes, int skip) => Encoding.GetString(bytes[skip..]);
 
         public byte[] Encode(string text) => [.. Preamble, .. Encoding.GetBytes(text)];
     }
@@ -52,7 +52,7 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
 
     public string Name => "Unity (Save Game Free)";
 
-    public bool CanLoad(string fileName, ReadOnlySpan<byte> data) => TryUnwrapOuter(data.ToArray(), out _, out _);
+    public bool CanLoad(string fileName, ReadOnlySpan<byte> data) => TryUnwrapOuter(data, out _, out _);
 
     public SaveDocument Load(string fileName, byte[] data, string? password = null)
     {
@@ -61,8 +61,9 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
             throw new SaveException("Not a Save Game Free file.");
         }
 
-        // A typed password wins; otherwise the operator's private list of known game passwords is tried.
-        string[] candidates = [.. (string.IsNullOrEmpty(password) ? [] : new[] { password }), .. KnownPasswords()];
+        // A given password is tried alone: password recovery calls this once per candidate, and also running
+        // the whole known list each time would multiply the cost by its length.
+        IEnumerable<string> candidates = string.IsNullOrEmpty(password) ? KnownPasswords.Read(knownPasswordsPath) : [password];
         foreach (string candidate in candidates)
         {
             if (TryDecrypt(raw, candidate) is (string text, TextShape inner))
@@ -75,13 +76,6 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
             ? "This save is encrypted. Enter its password to open it."
             : "Wrong password, or this is not a Save Game Free file.");
     }
-
-    // One password per line in the file; blank lines and lines starting with # are ignored. The file lives in
-    // the data folder rather than in the code because the passwords belong to individual games.
-    IEnumerable<string> KnownPasswords() =>
-        knownPasswordsPath is not null && File.Exists(knownPasswordsPath)
-            ? File.ReadLines(knownPasswordsPath).Select(l => l.TrimEnd('\r', '\n')).Where(l => l.Length > 0 && l[0] != '#')
-            : [];
 
     static (string Text, TextShape Inner)? TryDecrypt(byte[] raw, string password)
     {
@@ -139,7 +133,7 @@ public sealed class SaveGameFreeFormat(string? knownPasswordsPath = null) : ISav
         Rfc2898DeriveBytes.Pbkdf2(Encoding.UTF8.GetBytes(password), salt, Rounds, HashAlgorithmName.SHA1, 32);
 
     // Cheap structural test: the file is base64 text that decodes to salt + IV + whole cipher blocks.
-    static bool TryUnwrapOuter(byte[] data, out byte[] raw, out TextShape? outer)
+    static bool TryUnwrapOuter(ReadOnlySpan<byte> data, out byte[] raw, out TextShape? outer)
     {
         raw = [];
         outer = null;

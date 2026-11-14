@@ -7,6 +7,7 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 // Keys and the Ren'Py signing key live here so a container volume keeps them across restarts.
 string dataDir = Path.Combine(builder.Environment.ContentRootPath, "App_Data");
+string knownPasswords = Path.Combine(dataDir, "known-passwords.txt");
 
 // A circuit holds the parsed save in memory. Keep abandoned circuits for seconds, not the default minutes,
 // so repeated upload-and-disconnect cannot pile up memory.
@@ -21,11 +22,13 @@ builder.Services.AddSingleton<ISaveFormat, GvasFormat>();
 builder.Services.AddSingleton<ISaveFormat, RenpyFormat>();
 builder.Services.AddSingleton<ISaveFormat, RenpyPersistentFormat>();
 builder.Services.AddSingleton<ISaveFormat, RpgMakerFormat>();
+builder.Services.AddSingleton<ISaveFormat, RpgMakerMvFormat>();
 builder.Services.AddSingleton<ISaveFormat, PlainJsonFormat>();
-builder.Services.AddSingleton<ISaveFormat>(_ => new SaveGameFreeFormat(Path.Combine(dataDir, "known-passwords.txt")));
-builder.Services.AddSingleton<ISaveFormat, UnityEs3Format>();
+builder.Services.AddSingleton<ISaveFormat, XorTextFormat>();
+builder.Services.AddSingleton<ISaveFormat>(_ => new SaveGameFreeFormat(knownPasswords));
+builder.Services.AddSingleton<ISaveFormat>(_ => new UnityEs3Format(knownPasswords));
 builder.Services.AddSingleton<SaveFormatRegistry>();
-builder.Services.AddSingleton(_ => new SaveCache(Path.Combine(dataDir, "cache"), TimeProvider.System, knownPasswordsPath: Path.Combine(dataDir, "known-passwords.txt")));
+builder.Services.AddSingleton(_ => new SaveCache(Path.Combine(dataDir, "cache"), TimeProvider.System, knownPasswordsPath: knownPasswords));
 builder.Services.AddHostedService<CacheCleanup>();
 
 WebApplication app = builder.Build();

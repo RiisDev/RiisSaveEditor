@@ -9,7 +9,7 @@ string? password = passwordIndex >= 0 ? args[passwordIndex + 1] : null;
 int onlyIndex = Array.IndexOf(args, "--only");
 string? only = onlyIndex >= 0 ? args[onlyIndex + 1] : null;
 
-SaveFormatRegistry registry = new([new GvasFormat(), new RenpyFormat(), new RenpyPersistentFormat(), new RpgMakerFormat(), new PlainJsonFormat(), new SaveGameFreeFormat(), new UnityEs3Format()]);
+SaveFormatRegistry registry = new([new GvasFormat(), new RenpyFormat(), new RenpyPersistentFormat(), new RpgMakerFormat(), new RpgMakerMvFormat(), new PlainJsonFormat(), new XorTextFormat(), new SaveGameFreeFormat(), new UnityEs3Format()]);
 int failures = 0;
 
 if (args.Contains("--write-modified"))
@@ -98,6 +98,7 @@ failures += SecurityChecks.Run(registry, Path.GetFullPath(Path.Combine(root, "..
 failures += EncryptedJsonChecks.Run();
 failures += PasswordRecoveryChecks.Run();
 failures += RenpyCheatsChecks.Run();
+failures += PickleMemoChecks();
 
 if (listIndex < 0 && only is null)
 {
@@ -152,6 +153,11 @@ foreach (string file in files)
         string? extra = doc.Format switch
         {
             UnityEs3Format => CryptoChecks(registry, Path.GetFileName(file), original, registry.Load(Path.GetFileName(file), original)),
+            RpgMakerMvFormat => System.Text.Encoding.ASCII.GetString(original).TrimEnd() is string mvText
+                && LzString.DecompressFromBase64(mvText) is string mvJson
+                && (LzString.CompressToBase64(mvJson) == mvText || LzString.CompressToBase64Legacy(mvJson) == mvText)
+                ? "recompress ok (lz-string output matches the game's file)"
+                : "MISMATCH recompressing the unedited text differs from the game's file",
             GvasFormat => LegacyCheck(registry, Path.GetFileName(file), registry.Load(Path.GetFileName(file), original)),
             _ => null,
         };
@@ -184,6 +190,28 @@ if (args.Contains("--sig"))
 }
 
 return failures;
+
+// A list holding one string twice, the second time through the memo (BINPUT/BINGET in protocol 2,
+// MEMOIZE in protocol 4). Editing the first item must leave the second one as it was.
+static int PickleMemoChecks()
+{
+    int failed = 0;
+    foreach ((string label, byte[] data) in new (string, byte[])[]
+    {
+        ("protocol 2", [0x80, 2, (byte)']', (byte)'q', 0, (byte)'(', (byte)'X', 1, 0, 0, 0, (byte)'a', (byte)'q', 1, (byte)'h', 1, (byte)'e', (byte)'.']),
+        ("protocol 4", [0x80, 4, (byte)']', 0x94, (byte)'(', 0x8c, 1, (byte)'a', 0x94, (byte)'h', 1, (byte)'e', (byte)'.']),
+    })
+    {
+        PickleDocument doc = Pickle.Parse(data);
+        doc.Root.Children[0].Value = "edited";
+        PickleDocument again = Pickle.Parse(Pickle.Write(doc));
+        bool ok = again.Root.Children.Select(c => c.Value).SequenceEqual(["edited", "a"]) && doc.Root.Children[1].Value == "a";
+        Console.WriteLine($"{(ok ? "OK  " : "FAIL")} pickle: editing a shared string leaves its other uses alone ({label})");
+        failed += ok ? 0 : 1;
+    }
+
+    return failed;
+}
 
 static string Show(byte[] data, int at) =>
     System.Text.Encoding.Latin1.GetString(data, Math.Max(0, at - 20), Math.Min(50, data.Length - Math.Max(0, at - 20)))
@@ -219,9 +247,19 @@ static string? EditRoundTrip(SaveFormatRegistry registry, SaveDocument doc, stri
     byte[] saved = doc.Format.Save(doc);
     SaveDocument reloaded = registry.Load(fileName, saved, password);
     List<string> actual = [.. Flatten(reloaded.Root, "").Select(x => x.Path + "=" + x.Node.Value)];
-    return expected.SequenceEqual(actual)
-        ? $"edit kept ({target.Name} = {target.Value}, {saved.Length} bytes)"
-        : "MISMATCH after edit";
+    if (expected.SequenceEqual(actual))
+    {
+        return $"edit kept ({target.Name} = {target.Value}, {saved.Length} bytes)";
+    }
+
+    int d = 0;
+    while (d < Math.Min(expected.Count, actual.Count) && expected[d] == actual[d])
+    {
+        d++;
+    }
+
+    static string Clip(string s) => s.Length > 120 ? s[..120] + "..." : s;
+    return $"MISMATCH after edit of {target.Name}: #{d} expected '{Clip(d < expected.Count ? expected[d] : "<end>")}' got '{Clip(d < actual.Count ? actual[d] : "<end>")}' ({expected.Count} vs {actual.Count} values)";
 }
 
 static IEnumerable<(string Path, SaveNode Node)> Flatten(SaveNode node, string path)

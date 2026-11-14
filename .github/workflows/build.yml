@@ -1,0 +1,25 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build RiisSaveEditor.csproj -c Release
+      # The sample saves are local-only, so CI runs the synthetic checks against an empty folder.
+      - name: Checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/no-samples"
+          dotnet run --project Checks -c Release -- "$RUNNER_TEMP/no-samples"

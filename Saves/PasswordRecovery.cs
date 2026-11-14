@@ -105,9 +105,10 @@ public static class PasswordRecovery
     // once immediately (0, total) as soon as extraction finishes, so a UI has something real to show
     // before the brute force even starts, then on a wall-clock cadence (not a candidate count, since a
     // fixed count jumps unevenly across machines of different speeds) so it reads as live progress.
-    public static string? Recover(byte[] metadataFile, Func<string, bool> tryLoad, Action<int, int>? onProgress = null)
+    public static string? Recover(byte[] metadataFile, Func<string, bool> tryLoad, Action<int, int>? onProgress = null, CancellationToken ct = default)
     {
         List<string> candidates = [.. ExtractCandidateStrings(metadataFile)];
+        ct.ThrowIfCancellationRequested();
         int total = candidates.Count;
         int tried = 0;
         string? found = null;
@@ -116,7 +117,7 @@ public static class PasswordRecovery
         Stopwatch clock = Stopwatch.StartNew();
         long lastReportMs = -1;
 
-        Parallel.ForEach(candidates, (candidate, loop) =>
+        Parallel.ForEach(candidates, new ParallelOptions { CancellationToken = ct }, (candidate, loop) =>
         {
             if (tryLoad(candidate))
             {
@@ -141,5 +142,23 @@ public static class PasswordRecovery
 
         onProgress?.Invoke(found is null ? tried : total, total);
         return found;
+    }
+
+    // A recovery uses every core for minutes, so only one runs at a time across all users.
+    static readonly SemaphoreSlim Gate = new(1, 1);
+
+    public static bool Busy => Gate.CurrentCount == 0;
+
+    public static async Task<string?> RecoverAsync(byte[] metadataFile, Func<string, bool> tryLoad, Action<int, int>? onProgress, CancellationToken ct)
+    {
+        await Gate.WaitAsync(ct);
+        try
+        {
+            return await Task.Run(() => Recover(metadataFile, tryLoad, onProgress, ct), ct);
+        }
+        finally
+        {
+            Gate.Release();
+        }
     }
 }

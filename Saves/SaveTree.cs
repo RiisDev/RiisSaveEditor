@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Numerics;
+using System.Text.Encodings.Web;
+using System.Text.Json;
 
 namespace RiisSaveEditor.Saves
 {
@@ -165,6 +167,59 @@ namespace RiisSaveEditor.Saves
 			}
 
 			return changes;
+		}
+
+		// A read-only JSON view of the tree for inspecting or diffing outside the editor. It is never loaded back.
+		public static byte[] ToJson(SaveNode root)
+		{
+			using MemoryStream ms = new();
+			using (Utf8JsonWriter writer = new(ms, new JsonWriterOptions { Indented = true, Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, MaxDepth = 1024 }))
+			{
+				WriteJson(writer, root);
+			}
+
+			return ms.ToArray();
+		}
+
+		private static void WriteJson(Utf8JsonWriter w, SaveNode n)
+		{
+			switch (n.Kind)
+			{
+				case NodeKind.Object:
+					w.WriteStartObject();
+					foreach (SaveNode c in n.Items)
+					{
+						w.WritePropertyName(c.Name);
+						WriteJson(w, c);
+					}
+
+					w.WriteEndObject();
+					return;
+				case NodeKind.Array:
+					w.WriteStartArray();
+					foreach (SaveNode c in n.Items)
+					{
+						WriteJson(w, c);
+					}
+
+					w.WriteEndArray();
+					return;
+				case NodeKind.Integer when BigInteger.TryParse(n.Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out BigInteger big):
+					w.WriteRawValue(big.ToString(CultureInfo.InvariantCulture), skipInputValidation: true);
+					return;
+				case NodeKind.Float when double.TryParse(n.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) && double.IsFinite(d):
+					w.WriteNumberValue(d);
+					return;
+				case NodeKind.Bool:
+					w.WriteBooleanValue(n.Value == "true");
+					return;
+				case NodeKind.Null:
+					w.WriteNullValue();
+					return;
+				default:
+					w.WriteStringValue(n.Value ?? n.TypeLabel ?? "");
+					return;
+			}
 		}
 
 		private static Change Describe(SaveNode now, SaveNode then)

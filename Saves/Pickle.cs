@@ -5,7 +5,8 @@ using System.Text;
 
 namespace RiisSaveEditor.Saves
 {
-	public sealed record PatchSite(int Start, int Length, string? Original, byte Op);
+	// MemoLength is the memo-put opcode right after the value, Shared means a memo get refers back to it.
+	public sealed record PatchSite(int Start, int Length, string? Original, byte Op, int MemoLength = 0, bool Shared = false);
 
 // A protocol 4+ frame: the declared length of the 8 byte field at FieldOffset covers [Start, Start + Length).
 	public sealed record PickleFrame(int FieldOffset, int Start, long Length);
@@ -125,9 +126,9 @@ namespace RiisSaveEditor.Saves
 						break;
 					case (byte)'s': AddPairs(stack[^3], PopN(2)); break;
 					case (byte)'u': AddPairs(stack[marks[^1] - 1], PopToMark()); break;
-					case (byte)'q': memo[U8()] = stack[^1]; break;
-					case (byte)'r': memo[I32()] = stack[^1]; break;
-					case 0x94: memo[memo.Count] = stack[^1]; break;
+					case (byte)'q': memo[U8()] = MarkMemo(stack[^1], start, p); break;
+					case (byte)'r': memo[I32()] = MarkMemo(stack[^1], start, p); break;
+					case 0x94: memo[memo.Count] = MarkMemo(stack[^1], start, p); break;
 					case (byte)'h': stack.Add(Resolve(memo, U8())); break;
 					case (byte)'j': stack.Add(Resolve(memo, I32())); break;
 					case (byte)'K': { int v = U8(); stack.Add(Site(start, NodeKind.Integer, v.ToString(CultureInfo.InvariantCulture))); break; }
@@ -243,7 +244,17 @@ namespace RiisSaveEditor.Saves
 			{
 				PatchSite site = (PatchSite)n.Meta!;
 				byte[] encoded = Encode(n, site);
-				patches.Add((site.Start, site.Length, encoded));
+				int span = site.Length;
+
+				// A shared value keeps its bytes and memo-put so every memo get still sees the original; it is
+				// then popped and the new value pushed in its place, which changes only this one use.
+				if (site.Shared && site.MemoLength > 0)
+				{
+					span += site.MemoLength;
+					encoded = [.. doc.Data.AsSpan(site.Start, span), (byte)'0', .. encoded];
+				}
+
+				patches.Add((site.Start, span, encoded));
 
 				while (frame < doc.Frames.Count && site.Start >= doc.Frames[frame].Start + doc.Frames[frame].Length)
 				{
@@ -252,7 +263,7 @@ namespace RiisSaveEditor.Saves
 
 				if (frame < doc.Frames.Count && site.Start >= doc.Frames[frame].Start)
 				{
-					frameDelta[frame] += encoded.Length - site.Length;
+					frameDelta[frame] += encoded.Length - span;
 				}
 			}
 
@@ -343,21 +354,33 @@ namespace RiisSaveEditor.Saves
 		private static SaveNode Global(string module, string name) =>
 			new("", NodeKind.Reference, $"{module}.{name}") { TypeLabel = "global", ReadOnly = true };
 
+		// Remembers where a value's memo-put opcode sits, so an edit can leave the memo slot holding the original.
+		private static SaveNode MarkMemo(SaveNode n, int opStart, int opEnd)
+		{
+			if (n.Meta is PatchSite site && site.Start + site.Length == opStart)
+			{
+				n.Meta = site with { MemoLength = opEnd - opStart };
+			}
+
+			return n;
+		}
+
 		private static SaveNode Resolve(Dictionary<int, SaveNode> memo, int index)
 		{
 			SaveNode n = memo[index];
-			// Point at the original value, never at another alias: a chain of aliases would recurse when read.
-			while (n.Meta is SaveNode target)
-			{
-				n = target;
-			}
-
 			if (n.Kind is NodeKind.Object or NodeKind.Array or NodeKind.Reference)
 			{
 				return new SaveNode("", NodeKind.Reference, "-> " + (n.TypeLabel ?? n.Kind.ToString())) { TypeLabel = "ref", ReadOnly = true };
 			}
 
-			return new SaveNode("", n.Kind) { ReadOnly = true, Meta = n };
+			// Strings and numbers are immutable in Python, so a memo get is just another use of the original
+			// value: it is shown as that value, and editing the original must not change it (see Write).
+			if (n.Meta is PatchSite site)
+			{
+				n.Meta = site with { Shared = true };
+			}
+
+			return new SaveNode("", n.Kind, n.Value) { ReadOnly = true };
 		}
 
 		private static void AddIndexed(SaveNode target, List<SaveNode> items)

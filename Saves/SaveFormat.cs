@@ -17,17 +17,10 @@ namespace RiisSaveEditor.Saves
 		private static readonly SaveNode[] None = [];
 
 		private List<SaveNode>? _children;
-		private string? _value = value;
 
 		public string Name { get; set; } = name;
 		public NodeKind Kind { get; } = kind;
-
-		// A node whose Meta is another node is a live alias of it (a pickle memo reference).
-		public string? Value
-		{
-			get => Meta is SaveNode alias ? alias.Value : _value;
-			set => _value = value;
-		}
+		public string? Value { get; set; } = value;
 
 		public string? TypeLabel { get; set; }
 		public bool ReadOnly { get; init; }

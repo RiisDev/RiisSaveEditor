@@ -3,6 +3,7 @@
 @inject SaveFormatRegistry Registry
 @inject IJSRuntime Js
 @inject SaveCache Cache
+@implements IDisposable
 
 <PageTitle>Riis Save Editor</PageTitle>
 
@@ -34,7 +35,7 @@
             </p>
             <label class="dropzone small @(_recovering ? "busy" : null)">
                 <InputFile @key="_recoveryInputKey" class="file-input" OnChange="RecoverPasswordAsync" />
-                <strong>@(_recovering ? "Trying passwords..." : "Drop global-metadata.dat or Assembly-CSharp.dll")</strong>
+                <strong>@(_recoveryQueued ? "Waiting for another recovery to finish..." : _recovering ? "Trying passwords..." : "Drop global-metadata.dat or Assembly-CSharp.dll")</strong>
             </label>
 
             @if (_recovering && _recoveryTotal > 0)
@@ -63,15 +64,15 @@
             </article>
             <article class="format-card">
                 <h3>Unity</h3>
-                <p>Easy Save 3 (<code>.es3</code>) files, including gzip and password-encrypted ones, and encrypted Save Game Free JSON saves.</p>
+                <p>Easy Save 3 (<code>.es3</code>) files, including gzip and password-encrypted ones, encrypted Save Game Free JSON saves, and base64 saves hidden with a one-byte XOR.</p>
             </article>
             <article class="format-card">
                 <h3>Unreal Engine</h3>
                 <p>SaveGame files (<code>.sav</code>) from UE 4 and 5, with typed structs, text, arrays and maps.</p>
             </article>
             <article class="format-card">
-                <h3>RPG Maker MZ</h3>
-                <p>Save files (<code>.rmmzsave</code>), decompressed for editing and recompressed on download.</p>
+                <h3>RPG Maker MV and MZ</h3>
+                <p>Save files (<code>.rpgsave</code> and <code>.rmmzsave</code>), decompressed for editing and recompressed on download.</p>
             </article>
             <article class="format-card">
                 <h3>Godot and JSON</h3>
@@ -100,6 +101,7 @@ else
         </div>
         <div class="actions">
             <button type="button" class="button primary" @onclick="DownloadAsync" disabled="@_busy">Download</button>
+            <button type="button" class="button" @onclick="ExportJsonAsync" disabled="@_busy" title="Download a read-only JSON copy of the tree for inspecting or diffing elsewhere">Export JSON</button>
             <label class="button" title="Close this file and open another one">
                 Upload
                 <InputFile @key="_inputKey" class="file-input" OnChange="ReplaceAsync" />
@@ -189,6 +191,17 @@ else
             @if (_results is not null)
             {
                 <h3 class="results-title">@_results.Count result@(_results.Count == 1 ? "" : "s")@(_results.Count >= SearchLimit ? " (limit reached)" : "")</h3>
+                @if (_results.Any(r => r.Node.IsEditable))
+                {
+                    <form class="tree-search" @onsubmit="BulkSet">
+                        <input type="text" placeholder="New value for every editable result" spellcheck="false" @bind="_bulkValue" aria-label="New value for every editable result" />
+                        <button type="submit" class="button">Set all</button>
+                    </form>
+                }
+                @if (_bulkNote is not null)
+                {
+                    <p class="notice" role="status">@_bulkNote</p>
+                }
                 @foreach ((string path, SaveNode node) in _results)
                 {
                     <NodeRow @key="node" Node="node" Label="@path" OnEdited="OnEdited" />
@@ -214,6 +227,7 @@ else
             }
             else
             {
+                <button type="button" class="button small" @onclick="RevertAll">Revert all</button>
                 <table class="grid">
                     <thead><tr><th>Value</th><th>Original</th><th>New</th><th></th></tr></thead>
                     <tbody>
@@ -254,6 +268,10 @@ else
     bool _busy;
     bool _needsPassword;
     bool _recovering;
+    bool _recoveryQueued;
+    readonly CancellationTokenSource _disposed = new();
+    string _bulkValue = "";
+    string? _bulkNote;
     int _recoveryInputKey;
     int _recoveryTried;
     int _recoveryTotal;
@@ -477,7 +495,9 @@ else
             byte[] data = _pendingData!;
             string name = _pendingName;
 
-            string? found = await Task.Run(() => PasswordRecovery.Recover(metadata, candidate =>
+            _recoveryQueued = PasswordRecovery.Busy;
+            StateHasChanged();
+            string? found = await PasswordRecovery.RecoverAsync(metadata, candidate =>
             {
                 try
                 {
@@ -490,10 +510,11 @@ else
                 }
             }, (tried, total) => _ = InvokeAsync(() =>
             {
+                _recoveryQueued = false;
                 _recoveryTried = tried;
                 _recoveryTotal = total;
                 StateHasChanged();
-            })));
+            }), _disposed.Token);
 
             if (found is null)
             {
@@ -508,9 +529,14 @@ else
         {
             _error = ex.Message;
         }
+        catch (OperationCanceledException)
+        {
+            // The page was closed; nobody is left to tell.
+        }
         finally
         {
             _recovering = false;
+            _recoveryQueued = false;
         }
     }
 
@@ -582,8 +608,9 @@ else
             _inputKey++;
             string name = e.File.Name;
             SaveDocument current = _doc!;
+            string? password = _openPassword;
             Dictionary<SaveNode, Change> changes = await Task.Run(() =>
-                SaveTree.Compare(current.Root, Registry.Load(name, data).Root));
+                SaveTree.Compare(current.Root, Registry.Load(name, data, password).Root));
             _changes = changes;
             _compareName = name;
             _baseline = null;
@@ -592,7 +619,7 @@ else
         }
         catch (PasswordRequiredException)
         {
-            _error = "The earlier save is encrypted. Comparing against encrypted files is not supported yet.";
+            _error = "The earlier save is encrypted with a different password than this one, so it could not be compared.";
         }
         catch (Exception ex) when (ex is SaveException or IOException)
         {
@@ -693,8 +720,56 @@ else
 
     void Revert(SaveNode node, string? old) => node.Value = old;
 
+    void RevertAll()
+    {
+        foreach ((SaveNode node, string? old) in _originals)
+        {
+            node.Value = old;
+        }
+
+        _originals.Clear();
+    }
+
+    // Applies one value to every editable search result whose type accepts it, recorded like a normal edit.
+    void BulkSet()
+    {
+        int set = 0, skipped = 0;
+        foreach ((_, SaveNode node) in _results!)
+        {
+            string text = node.Kind == NodeKind.String ? _bulkValue : _bulkValue.Trim();
+            if (!node.IsEditable || !node.IsValid(text))
+            {
+                skipped++;
+                continue;
+            }
+
+            if (node.Value != text)
+            {
+                _originals.TryAdd(node, node.Value);
+                node.Value = text;
+            }
+
+            set++;
+        }
+
+        _bulkNote = $"Set {set} value{(set == 1 ? "" : "s")}" + (skipped > 0 ? $", skipped {skipped} (read-only or the wrong type)." : ".");
+    }
+
+    async Task ExportJsonAsync()
+    {
+        SaveDocument doc = _doc!;
+        byte[] json = await Task.Run(() => SaveTree.ToJson(doc.Root));
+        using MemoryStream ms = new(json);
+        using DotNetStreamReference stream = new(ms);
+        await Js.InvokeVoidAsync("downloadFile", doc.FileName + ".export.json", stream);
+    }
+
+    // Not disposed: a recovery still running on the pool may read the token after the page is gone.
+    public void Dispose() => _disposed.Cancel();
+
     void Search()
     {
+        _bulkNote = null;
         string q = _query.Trim();
         if (q.Length == 0)
         {

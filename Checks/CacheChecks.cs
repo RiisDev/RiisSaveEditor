@@ -145,6 +145,18 @@ namespace RiisSaveEditor.Checks
 			Check("forgetting everything removes the passwords too", (await cache.PasswordsAsync(alice)).Count == 0);
 			Check("forgetting removes everything for a code", (await cache.ListAsync(alice)).Count == 0);
 
+			// Anyone can add to the shared list, so it stops growing at its cap.
+			string knownPath = Path.Combine(dir, "known-passwords.txt");
+			File.WriteAllText(knownPath, "# operator notes\n");
+			SaveCache shared = new(Path.Combine(dir, "shared"), clock, knownPasswordsPath: knownPath);
+			for (int i = 0; i < KnownPasswords.Max + 10; i++)
+			{
+				await shared.AddPasswordAsync(alice, "k" + i);
+			}
+
+			Check("the shared password list is capped", KnownPasswords.Read(knownPath).Count() == KnownPasswords.Max
+				&& File.ReadLines(knownPath).Count(l => l.Length > 0 && l[0] != '#') == KnownPasswords.Max);
+
 			Directory.Delete(dir, recursive: true);
 			return failures;
 

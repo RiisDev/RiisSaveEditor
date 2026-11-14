@@ -201,12 +201,27 @@ namespace RiisSaveEditor.Saves
 					string childName;
 					if (kind == NodeKind.Object)
 					{
-						if (Peek() != '"')
+						// Easy Save 3 writes integer dictionary keys without quotes ({161:26}). Names are never
+						// rewritten, so the bare spelling survives a save.
+						if (Peek() is '-' or >= '0' and <= '9')
+						{
+							int keyStart = _i++;
+							while (_i < s.Length && s[_i] is >= '0' and <= '9')
+							{
+								_i++;
+							}
+
+							childName = s[keyStart.._i];
+						}
+						else if (Peek() == '"')
+						{
+							childName = ParseString();
+						}
+						else
 						{
 							throw Error("expected a property name");
 						}
 
-						childName = ParseString();
 						SkipSpace();
 						if (Peek() != ':')
 						{
