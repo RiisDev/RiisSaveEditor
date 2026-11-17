@@ -4,9 +4,9 @@ using System.Text.RegularExpressions;
 
 namespace RiisSaveEditor.Saves;
 
-public sealed record CheatOptions(bool Console = true, bool QuickSave = true, bool Skip = true, bool Rollback = true)
+public sealed record CheatOptions(bool Console = true, bool QuickSave = true, bool Skip = true, bool Rollback = true, bool Menu = true, bool Values = true, bool Strings = true, bool Hud = true, bool Walkthrough = true)
 {
-    public bool Any => Console || QuickSave || Skip || Rollback;
+    public bool Any => Console || QuickSave || Skip || Rollback || Menu;
 }
 
 // Snippets from UnRen. Credit: VepsrP (329951) Updated UnRen, Sam (7899) Original Script, and joelurmel (5474051)
@@ -24,6 +24,16 @@ public static class RenpyCheats
         sb.Append("# Delete it to undo everything below.\n");
         sb.Append("# Snippets from UnRen. Credit: VepsrP (329951) Updated UnRen, Sam (7899) Original Script, and joelurmel (5474051) another updated variant, from f95zone.\n\n");
         if (!options.Any)
+        {
+            return sb.ToString();
+        }
+
+        if (options.Menu)
+        {
+            sb.Append(BuildMenu(options));
+        }
+
+        if (!(options.Console || options.QuickSave || options.Skip || options.Rollback))
         {
             return sb.ToString();
         }
@@ -91,8 +101,76 @@ public static class RenpyCheats
         return sb.ToString();
     }
 
-    static readonly Regex Token = new(@"(?<c>#.*)|(?<s>'[^']*'|""[^""]*"")|(?<n>\b\d+\b)|(?<w>\b[A-Za-z_][A-Za-z0-9_]*\b)", RegexOptions.Compiled);
-    static readonly HashSet<string> Keywords = ["init", "python", "try", "except", "def", "return", "pass"];
+    sealed record ModFeature(string Resource, Func<CheatOptions, bool> Enabled, (string Title, string Screen)[] Tabs, string[] Sections);
+
+    // Order here is the tab order. Each feature is one embedded .rpy file under Saves/RenpyMod.
+    static readonly ModFeature[] Features =
+    [
+        new("values", o => o.Values, [("Values", "rcheats_tab_values"), ("Notify", "rcheats_tab_notify"), ("Log", "rcheats_tab_log")], []),
+        new("strings", o => o.Strings, [("Text", "rcheats_tab_strings")], []),
+        new("hud", o => o.Hud, [], ["rcheats_sec_hud"]),
+        new("walkthrough", o => o.Walkthrough, [], ["rcheats_sec_walk"]),
+    ];
+
+    static string ReadResource(string name)
+    {
+        using Stream stream = typeof(RenpyCheats).Assembly.GetManifestResourceStream($"RenpyMod.{name}.rpy")
+                              ?? throw new InvalidOperationException($"Missing embedded resource {name}.rpy");
+        using StreamReader reader = new(stream, Encoding.UTF8);
+        return reader.ReadToEnd().Replace("\r\n", "\n");
+    }
+
+    // core.rpy carries placeholder comments that receive the tab list, the per-tab screen branches and the General page sections.
+    static string BuildMenu(CheatOptions options)
+    {
+        List<(string Title, string Screen)> tabs = [("General", "rcheats_tab_general")];
+        List<string> sections = [];
+        StringBuilder features = new();
+        foreach (ModFeature feature in Features.Where(f => f.Enabled(options)))
+        {
+            tabs.AddRange(feature.Tabs);
+            sections.AddRange(feature.Sections);
+            features.Append(ReadResource(feature.Resource)).Append('\n');
+        }
+
+        StringBuilder core = new();
+        foreach (string line in ReadResource("core").Split('\n'))
+        {
+            string trimmed = line.TrimStart();
+            string indent = line[..^trimmed.Length];
+            if (trimmed == "# {{TABS}}")
+            {
+                foreach ((string title, _) in tabs)
+                {
+                    core.Append(indent).Append('"').Append(title).Append("\",\n");
+                }
+            }
+            else if (trimmed == "# {{SECTIONS}}")
+            {
+                foreach (string section in sections)
+                {
+                    core.Append(indent).Append("use ").Append(section).Append("\n");
+                }
+            }
+            else if (trimmed == "# {{BRANCHES}}")
+            {
+                for (int i = 0; i < tabs.Count; i++)
+                {
+                    core.Append(indent).Append("if tab == ").Append(i).Append(":\n");
+                    core.Append(indent).Append("    use ").Append(tabs[i].Screen).Append('\n');
+                }
+            }
+            else
+            {
+                core.Append(line).Append('\n');
+            }
+        }
+
+        return core.ToString().TrimEnd('\n') + "\n\n" + features;
+    }
+
+    static readonly Regex Token =new(@"(?<c>#.*)|(?<s>'[^']*'|""[^""]*"")|(?<n>\b\d+\b)|(?<w>\b[A-Za-z_][A-Za-z0-9_]*\b)", RegexOptions.Compiled);
+    static readonly HashSet<string> Keywords = ["init", "python", "try", "except", "def", "return", "pass", "label", "screen", "call", "if", "not", "is", "for", "in", "use", "default", "tag", "modal", "zorder", "key", "add", "vbox", "hbox", "frame", "text", "textbutton", "null"];
     static readonly HashSet<string> Literals = ["True", "False", "None"];
 
     // Only ever fed the script built above, so a small tokenizer is enough. Everything is HTML-encoded.

@@ -9,6 +9,11 @@
     <p class="lead">Pick what to enable and download one <code>@RenpyCheats.FileName</code>. Drop it into the game's <code>game</code> folder. It works without unpacking the game and deleting the file undoes it.</p>
 
     <div class="cheat-options">
+        <label><input type="checkbox" @bind="_menu" /> rCheats menu (button above the quick menu, or F8)</label>
+        <label class="sub"><input type="checkbox" @bind="_values" disabled="@(!_menu)" /> Value editor, pinning, change notifications and log</label>
+        <label class="sub"><input type="checkbox" @bind="_strings" disabled="@(!_menu)" /> Text replacer (names, words, relations)</label>
+        <label class="sub"><input type="checkbox" @bind="_hud" disabled="@(!_menu)" /> Dialogue box opacity slider</label>
+        <label class="sub"><input type="checkbox" @bind="_walk" disabled="@(!_menu)" /> Choice walkthrough (shows what each choice changes)</label>
         <label><input type="checkbox" @bind="_console" /> Console and developer menu (Shift+O)</label>
         <label><input type="checkbox" @bind="_quick" /> Quick save and load (F5 / F9)</label>
         <label><input type="checkbox" @bind="_skip" /> Skip unseen text (Tab / Ctrl)</label>
@@ -17,15 +22,15 @@
 
     <p class="muted small">Snippets from UnRen. Credit: VepsrP (329951) Updated UnRen, Sam (7899) Original Script, and joelurmel (5474051) another updated variant, from f95zone.</p>
 
-    <pre class="cheat-preview"><code>@((MarkupString)RenpyCheats.Highlight(Script))</code></pre>
+    <button type="button" class="button primary cheat-download" @onclick="DownloadAsync" disabled="@(!Options.Any)">Download @RenpyCheats.FileName</button>
 
-    <button type="button" class="button primary" @onclick="DownloadAsync" disabled="@(!Options.Any)">Download @RenpyCheats.FileName</button>
+    <pre class="cheat-preview"><code>@((MarkupString)RenpyCheats.Highlight(Script))</code></pre>
 </section>
 
 @code {
-    bool _console = true, _quick = true, _skip = true, _rollback = true;
+    bool _console = true, _quick = true, _skip = true, _rollback = true, _menu = true, _values = true, _strings = true, _hud = true, _walk = true;
 
-    CheatOptions Options => new(_console, _quick, _skip, _rollback);
+    CheatOptions Options => new(_console, _quick, _skip, _rollback, _menu, _values, _strings, _hud, _walk);
     string Script => RenpyCheats.Build(Options);
 
     async Task DownloadAsync()

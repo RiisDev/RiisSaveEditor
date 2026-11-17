@@ -417,3 +417,5 @@ select { cursor: pointer; }
 .tk-keyword { color: #c792ea; }
 .tk-literal { color: #f78c6c; }
 .tk-function { color: #82aaff; }
+.cheat-options label.sub { margin-left: 1.6rem; }
+.cheat-download { margin: 1.25rem 0 1.5rem; }

@@ -14,4 +14,8 @@
     <None Remove="Checks\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Saves/RenpyMod/*.rpy" LogicalName="RenpyMod.%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

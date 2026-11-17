@@ -18,7 +18,7 @@ Saves are parsed and edited in memory, and no third-party parsing packages are u
 
 ### Screenshots
 
-The previews below use an invented demo save. Click a title to expand it.
+The previews below use an invented demo save and demo game. Click a title to expand it.
 
 <details>
 <summary>Tree view: browse and edit every value, with lazy loading and search</summary>
@@ -55,6 +55,48 @@ The previews below use an invented demo save. Click a title to expand it.
 
 </details>
 
+<details>
+<summary>rCheats menu, Values: sortable table with inline editing, pinning and a change column since the menu was opened</summary>
+
+![rCheats Values](Screenshots/rcheats-values.png)
+
+</details>
+
+<details>
+<summary>rCheats menu, choice walkthrough: what each choice raises or lowers, with animated change notifications</summary>
+
+![rCheats choice walkthrough](Screenshots/rcheats-walkthrough.png)
+
+</details>
+
+<details>
+<summary>rCheats menu, Notify: corner, text size, box width, time on screen and a name filter</summary>
+
+![rCheats Notify](Screenshots/rcheats-notify.png)
+
+</details>
+
+<details>
+<summary>rCheats menu, Text: replace names and words everywhere they are shown</summary>
+
+![rCheats Text](Screenshots/rcheats-text.png)
+
+</details>
+
+<details>
+<summary>rCheats menu, General: dialogue box opacity and the choice walkthrough switch</summary>
+
+![rCheats General](Screenshots/rcheats-general.png)
+
+</details>
+
+<details>
+<summary>rCheats menu, Log: every value change recorded while the game runs</summary>
+
+![rCheats Log](Screenshots/rcheats-log.png)
+
+</details>
+
 ### Features
 
 - Tree view for browsing every value in the save, with lazy loading for very large files and a search box.
@@ -66,6 +108,7 @@ The previews below use an invented demo save. Click a title to expand it.
 - Edits are written back byte-for-byte: only the values you changed are re-encoded, everything else in the file is preserved.
 - Automatic comparison: upload a save and it is compared with your previous save of the same game, with no extra step.
 - Ren'Py cheat file builder at `/renpy-cheats`: tick the console, quick save and load, skip and rollback enablers and download a single `zz-riis-cheats.rpy` for the game's `game` folder. Delete the file to undo it.
+- rCheats in-game menu (part of the same generated file): an rCheats button above the game's quick menu, or F8, opens a fullscreen menu. The Values tab is a sortable, filterable, paged table with inline editing (numbers, text and True/False), pinning to lock a value, and a change column measured from when the menu was opened. Notify shows animated corner notifications for every change (size, width, time and corner are adjustable, with a text filter), Log keeps the change history, Text replaces names and words in all shown text, and the General page holds a dialogue box opacity slider and a choice walkthrough that lists what each choice raises or lowers. Each part can be left out in the builder. Tested on Ren'Py 6.99, 7.8 and 8.6.
 - Password prompt for encrypted saves, plus a list of known game passwords (`App_Data/known-passwords.txt`) so those saves open without a prompt, for both Easy Save 3 and Save Game Free. Passwords you type or recover are added to that list automatically, up to 500 entries.
 - Password recovery for encrypted Unity saves: upload the game's `global-metadata.dat` or `Assembly-CSharp.dll` (up to 128 MB) and every string found in it is tried as the password, in parallel, with a live progress bar. A password that works is remembered under your resume code like a typed one.
 
@@ -208,6 +251,7 @@ Most of this project were developed with AI assistance. Below is a summary of wh
 - Saves/XorTextFormat.cs - single-byte XOR text saves with automatic key detection
 - Saves/SaveFormat.cs, Saves/SaveTree.cs - shared node model, format registry, statistics and compare logic
 - Saves/RenpyCheats.cs, Components/Pages/CheatPage.razor - Ren'Py cheat file generator (console, quick save, skip and rollback enablers based on the UnRen snippets, see Credits)
+- Saves/RenpyMod/*.rpy - rCheats in-game menu written in Ren'Py script (core framework, value editor and pinning, notifications, text replacer, HUD slider, choice walkthrough), embedded and assembled by the generator
 - Saves/SaveCache.cs, CacheCleanup.cs - 30-day saved-files cache, GUID resume codes, similarity matching and expiry
 - Components and wwwroot - Blazor pages, tree and values views, saved-files panel, dashboard layout and styling
 - Checks - round-trip, edit, encryption, legacy layout, compare, cache and security regression checks

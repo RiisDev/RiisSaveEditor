@@ -12,6 +12,13 @@ string? only = onlyIndex >= 0 ? args[onlyIndex + 1] : null;
 SaveFormatRegistry registry = new([new GvasFormat(), new RenpyFormat(), new RenpyPersistentFormat(), new RpgMakerFormat(), new RpgMakerMvFormat(), new PlainJsonFormat(), new XorTextFormat(), new SaveGameFreeFormat(), new UnityEs3Format()]);
 int failures = 0;
 
+int cheatsIndex = Array.IndexOf(args, "--write-cheats");
+if (cheatsIndex >= 0)
+{
+    File.WriteAllText(args[cheatsIndex + 1], RenpyCheats.Build(new CheatOptions()));
+    return 0;
+}
+
 if (args.Contains("--write-modified"))
 {
     string source = Path.Combine(root, "renpy.save");
