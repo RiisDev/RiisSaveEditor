@@ -5,8 +5,8 @@ using System.Text;
 namespace RiisSaveEditor.Saves
 {
 	// A Ren'Py save is a zip holding the pickled game log plus a signature over that log. Edited saves are
-// re-signed with a key owned by this editor, so Ren'Py treats them as coming from another device and
-// asks the player once to trust that key.
+	// re-signed with a key owned by this editor, so Ren'Py treats them as coming from another device and
+	// asks the player once to trust that key.
 	public sealed class RenpyFormat : ISaveFormat
 	{
 		private sealed record State(List<KeyValuePair<string, byte[]>> Entries, PickleDocument Log);
@@ -185,33 +185,19 @@ namespace RiisSaveEditor.Saves
 
 		public SaveDocument Load(string fileName, byte[] data, string? password = null)
 		{
-			using ZLibStream z = new(new MemoryStream(data), CompressionMode.Decompress);
-			PickleDocument pickle = Pickle.Parse(SafeIo.ReadAll(z));
+			PickleDocument pickle = Pickle.Parse(SafeIo.ZLibDecompress(data));
 			pickle.Root.Name = fileName;
 			return new SaveDocument(this, fileName, pickle.Root, pickle);
 		}
 
 		public static bool SamePayload(byte[] a, byte[] b)
 		{
-			return Inflate(a).AsSpan().SequenceEqual(Inflate(b));
-
-			static byte[] Inflate(byte[] data)
-			{
-				using ZLibStream z = new(new MemoryStream(data), CompressionMode.Decompress);
-				return SafeIo.ReadAll(z);
-			}
+			return SafeIo.ZLibDecompress(a).AsSpan().SequenceEqual(SafeIo.ZLibDecompress(b));
 		}
 
 		public byte[] Save(SaveDocument document)
 		{
-			byte[] plain = Pickle.Write((PickleDocument)document.State!);
-			using MemoryStream output = new();
-			using (ZLibStream z = new(output, CompressionLevel.Optimal, leaveOpen: true))
-			{
-				z.Write(plain);
-			}
-
-			return output.ToArray();
+			return SafeIo.ZLibCompress(Pickle.Write((PickleDocument)document.State!));
 		}
 	}
 }

@@ -53,8 +53,8 @@
                         <tr @key="entry.Id">
                             <td class="cell-name" title="@entry.FileName">@entry.FileName @if (entry.Edited) { <span class="badge warn">edited</span> }</td>
                             <td>@entry.Format</td>
-                            <td>@FormatBytes(entry.Size)</td>
-                            <td>@SaveCache.Ago(entry.UploadedUtc, DateTimeOffset.UtcNow)</td>
+                            <td>@Display.Bytes(entry.Size)</td>
+                            <td>@Display.Ago(entry.UploadedUtc, DateTimeOffset.UtcNow)</td>
                             <td>in @Math.Max(0, (int)Math.Ceiling((entry.ExpiresUtc - DateTimeOffset.UtcNow).TotalDays)) days</td>
                             <td><button type="button" class="button small" @onclick="() => OnDelete.InvokeAsync(entry.Id)">Delete</button></td>
                         </tr>
@@ -119,11 +119,4 @@
         _confirmForget = false;
         await OnForgetAll.InvokeAsync();
     }
-
-    static string FormatBytes(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
-        _ => $"{bytes / 1024.0 / 1024.0:0.#} MB",
-    };
 }

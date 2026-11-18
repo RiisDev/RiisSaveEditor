@@ -4,14 +4,12 @@ using System.Text;
 namespace RiisSaveEditor.Saves
 {
 	// RPG Maker MZ (.rmmzsave): the save JSON is zlib-deflated by pako into a "binary string", and
-// Node then writes that string as UTF-8, so every compressed byte above 0x7F became two bytes.
-// Loading reverses both steps. An untouched file is returned byte-for-byte; an edited one is
-// recompressed, which the game's inflate accepts although the compressed bytes differ.
+	// Node then writes that string as UTF-8, so every compressed byte above 0x7F became two bytes.
+	// Loading reverses both steps. An untouched file is returned byte-for-byte; an edited one is
+	// recompressed, which the game's inflate accepts although the compressed bytes differ.
 	public sealed class RpgMakerFormat : ISaveFormat
 	{
 		private sealed record State(byte[] Original, string Text);
-
-		private static readonly UTF8Encoding Strict = new(false, true);
 
 		public string Name => "RPG Maker MZ";
 
@@ -22,7 +20,7 @@ namespace RiisSaveEditor.Saves
 		{
 			try
 			{
-				string packed = Strict.GetString(data);
+				string packed = TextBytes.Strict.GetString(data);
 				byte[] deflated = new byte[packed.Length];
 				for (int i = 0; i < packed.Length; i++)
 				{
@@ -34,8 +32,7 @@ namespace RiisSaveEditor.Saves
 					deflated[i] = (byte)packed[i];
 				}
 
-				using ZLibStream zlib = new(new MemoryStream(deflated), CompressionMode.Decompress);
-				string text = Strict.GetString(SafeIo.ReadAll(zlib));
+				string text = TextBytes.Strict.GetString(SafeIo.ZLibDecompress(deflated));
 				return new SaveDocument(this, fileName, JsonText.Parse(text, fileName), new State(data, text));
 			}
 			catch (Exception e) when (e is ArgumentException or InvalidDataException)
@@ -53,13 +50,8 @@ namespace RiisSaveEditor.Saves
 				return state.Original;
 			}
 
-			using MemoryStream packed = new();
-			using (ZLibStream zlib = new(packed, CompressionLevel.Fastest, leaveOpen: true))
-			{
-				zlib.Write(Encoding.UTF8.GetBytes(text));
-			}
-
-			return Encoding.UTF8.GetBytes(Encoding.Latin1.GetString(packed.ToArray()));
+			byte[] packed = SafeIo.ZLibCompress(Encoding.UTF8.GetBytes(text), CompressionLevel.Fastest);
+			return Encoding.UTF8.GetBytes(Encoding.Latin1.GetString(packed));
 		}
 	}
 }

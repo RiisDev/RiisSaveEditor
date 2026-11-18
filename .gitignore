@@ -410,3 +410,5 @@ App_Data/
 Checks/fixtures/
 SAVE_EXAMPLES/
 CLAUDE.md
+
+dist/

@@ -3,15 +3,16 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <Version>0.0.0-dev</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Checks\**" />
-    <Content Remove="Checks\**" />
+    <Compile Remove="Checks\**;installer\**;dist\**" />
+    <Content Remove="Checks\**;installer\**;dist\**;SAVE_EXAMPLES\**;App_Data\**" />
     <EmbeddedResource Remove="Checks\**" />
-    <None Remove="Checks\**" />
+    <None Remove="Checks\**;installer\**;dist\**;SAVE_EXAMPLES\**;App_Data\**" />
   </ItemGroup>
 
   <ItemGroup>

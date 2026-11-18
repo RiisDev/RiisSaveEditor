@@ -419,3 +419,19 @@ select { cursor: pointer; }
 .tk-function { color: #82aaff; }
 .cheat-options label.sub { margin-left: 1.6rem; }
 .cheat-download { margin: 1.25rem 0 1.5rem; }
+
+/* Update notice: full-width strip above the floating nav; the nav and page shift down while it shows */
+.update-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    padding: 6px 12px;
+    text-align: center;
+    background: var(--accent-strong);
+    color: #fff;
+}
+.update-banner a { color: #fff; font-weight: 600; margin-left: .5rem; }
+body:has(.update-banner) .nav-container { top: 46px; }
+body:has(.update-banner) main { padding-top: 8.5rem; }

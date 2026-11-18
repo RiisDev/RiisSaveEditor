@@ -88,7 +88,7 @@ else
             <h2 class="file-name" title="@_doc.FileName">@_doc.FileName</h2>
             <div class="summary-tags">
                 <span class="badge">@_doc.Format.Name</span>
-                <span class="muted">@FormatBytes(_fileSize)</span>
+                <span class="muted">@Display.Bytes(_fileSize)</span>
                 @if (ModifiedCount > 0)
                 {
                     <span class="badge warn">@ModifiedCount edited</span>
@@ -144,13 +144,13 @@ else
     @if (_baseline is not null)
     {
         <div class="notice compare-note">
-            <span>Compared automatically with <strong>@_baseline.FileName</strong> saved @SaveCache.Ago(_baseline.UploadedUtc, DateTimeOffset.UtcNow)@(_baseline.Edited ? " (your edited download)" : "").</span>
+            <span>Compared automatically with <strong>@_baseline.FileName</strong> saved @Display.Ago(_baseline.UploadedUtc, DateTimeOffset.UtcNow)@(_baseline.Edited ? " (your edited download)" : "").</span>
             @if (_candidates.Count > 1)
             {
                 <select @onchange="OnBaselineChanged" aria-label="Compare against">
                     @foreach (CacheEntry c in _candidates)
                     {
-                        <option value="@c.Id" selected="@(c.Id == _baseline.Id)">@c.FileName, @SaveCache.Ago(c.UploadedUtc, DateTimeOffset.UtcNow)@(c.Edited ? " (edited)" : "")</option>
+                        <option value="@c.Id" selected="@(c.Id == _baseline.Id)">@c.FileName, @Display.Ago(c.UploadedUtc, DateTimeOffset.UtcNow)@(c.Edited ? " (edited)" : "")</option>
                     }
                 </select>
             }
@@ -842,11 +842,4 @@ else
     }
 
     static string Reason(Exception ex) => ex is SaveException or CacheFullException ? ex.Message : "a storage error occurred";
-
-    static string FormatBytes(long bytes) => bytes switch
-    {
-        < 1024 => $"{bytes} B",
-        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
-        _ => $"{bytes / 1024.0 / 1024.0:0.#} MB",
-    };
 }

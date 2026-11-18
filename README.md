@@ -218,7 +218,7 @@ docker run --rm -v "$PWD:/src:ro" mcr.microsoft.com/dotnet/sdk:10.0 sh -c \
 
 The `Build` workflow builds the app and runs the self-checks on every push to `main` and on pull requests. The sample saves are local-only, so CI runs only the synthetic checks (security, encryption, password recovery, cache and cheat builder).
 
-### Releases
+### Releases and update notice
 
 The `Release` workflow runs only when a tag named `vMAJOR.MINOR.BUGFIX` is pushed (for example `v1.2.0`) or when started manually from the Actions tab with a version. It publishes a GitHub release with six downloads, plus a container image at `ghcr.io/riisdev/riissaveeditor` tagged with the version and `latest`.
 
@@ -227,6 +227,13 @@ The `Release` workflow runs only when a tag named `vMAJOR.MINOR.BUGFIX` is pushe
 | `single-file` (linux-x64, win-x64) | One executable with the runtime inside, plus `wwwroot` | No |
 | `self-contained` (linux-x64, win-x64) | Loose files with the runtime | No |
 | `framework-dependent` (linux-x64, win-x64) | Loose files, smallest | Yes, the .NET 10 ASP.NET runtime |
+
+Each release also carries two one-step installers:
+
+- **Windows:** `RiisSaveEditor-v<version>-setup-win-x64.exe` installs per user to `%LOCALAPPDATA%\RiisSaveEditor` (no administrator rights needed) and adds a Start menu shortcut. A wizard page sets the port (default 8080, silent: `/PORT=9090`, kept on upgrade). An optional task installs it as a Windows service through the bundled NSSM so it starts with Windows; that part asks for administrator approval once. The uninstaller removes the service and offers a "Remove save caches" checkbox (silent: `/REMOVEDATA`). Keys and known passwords in `App_Data` are kept. The installer is unsigned, so SmartScreen may warn.
+- **Linux:** `install.sh install [version] [--port N] [--no-service]` installs to `~/.local/share/riissaveeditor` and runs it as a systemd user service on `http://127.0.0.1:8080`; add `--port 9090` to change it. `install.sh uninstall [--remove-cache]` and `install.sh status` do the rest.
+
+The tag is stamped into the app as its version. Every 30 minutes the server checks the latest GitHub release and, if it is newer than the running version, shows a banner at the top of every page. Builds made without a tag (`dotnet run`, local Docker) report `0.0.0-dev` and never show the banner. To test it locally, build with `docker compose build --build-arg VERSION=0.0.1`.
 
 Linux downloads are `.tar.gz`, Windows downloads are `.zip`. Keep each download's `wwwroot` folder next to the executable.
 

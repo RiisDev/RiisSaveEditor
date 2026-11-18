@@ -11,3 +11,5 @@ compose.yaml
 *.slnx
 Screenshots/
 CLAUDE.md
+installer/
+dist/

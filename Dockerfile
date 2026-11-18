@@ -3,7 +3,8 @@ WORKDIR /src
 COPY RiisSaveEditor.csproj ./
 RUN dotnet restore RiisSaveEditor.csproj
 COPY . .
-RUN dotnet publish RiisSaveEditor.csproj -c Release -o /app/publish
+ARG VERSION=0.0.0-dev
+RUN dotnet publish RiisSaveEditor.csproj -c Release -p:Version=${VERSION} -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app

@@ -21,9 +21,9 @@ namespace RiisSaveEditor.Saves
 	// Raised when the whole cache is at its cap; the message is safe to show to the user.
 	public sealed class CacheFullException(string message) : IOException(message);
 
-// Keeps uploaded saves on disk so a later upload of the same game can be compared automatically.
-// People are not identified: a resume code (a random GUID kept in the browser) is hashed into the folder name,
-// so whoever holds the code holds the cache. Files expire 30 days after they were last used.
+	// Keeps uploaded saves on disk so a later upload of the same game can be compared automatically.
+	// People are not identified: a resume code (a random GUID kept in the browser) is hashed into the folder name,
+	// so whoever holds the code holds the cache. Files expire 30 days after they were last used.
 	public sealed class SaveCache(
 		string root,
 		TimeProvider clock,
@@ -141,15 +141,6 @@ namespace RiisSaveEditor.Saves
 				: "Enter a valid code. It looks like 123e4567-e89b-12d3-a456-426614174000.";
 
 		public static string HashOf(byte[] data) => Convert.ToHexString(SHA256.HashData(data));
-
-		public static string Ago(DateTimeOffset when, DateTimeOffset now)
-		{
-			TimeSpan age = now - when;
-			return age.TotalMinutes < 1 ? "just now"
-				: age.TotalHours < 1 ? $"{(int)age.TotalMinutes} min ago"
-				: age.TotalDays < 1 ? $"{(int)age.TotalHours} h ago"
-				: $"{(int)age.TotalDays} day{((int)age.TotalDays == 1 ? "" : "s")} ago";
-		}
 
 		public async Task<CacheEntry> StoreAsync(string code, SaveDocument doc, byte[] data, bool edited, CancellationToken ct = default)
 		{

@@ -66,6 +66,31 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  installer:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Publish
+        run: >
+          dotnet publish RiisSaveEditor.csproj -c Release -r win-x64 --self-contained
+          -p:Version=${{ needs.version.outputs.version }}
+          -p:DebugType=None -p:DebugSymbols=false -o publish
+      - name: Build installer
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue)?.Source ?? "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=${{ needs.version.outputs.version }}" "/DSourceDir=$PWD\publish" installer\RiisSaveEditor.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-win-x64
+          path: dist/*.exe
+          if-no-files-found: error
+
   container:
     needs: version
     runs-on: ubuntu-latest
@@ -93,29 +118,47 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: VERSION=${{ needs.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   release:
-    needs: [version, build]
+    needs: [version, build, installer]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: dist
           # The docker build step also uploads a .dockerbuild record artifact that cannot be
-          # extracted, so only fetch the six archives.
+          # extracted, so only fetch the six archives and the Windows installer.
           pattern: '*-x64'
           merge-multiple: true
       # RELEASE_TOKEN is a personal access token, so the release is authored by that
       # account. The built-in GITHUB_TOKEN would show github-actions as the author.
+      # Commits go straight to main (no PRs), so --generate-notes would be empty. List the
+      # commits since the previous tag instead.
+      - name: Write release notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${{ github.sha }}^" 2>/dev/null || true)
+          range="${prev:+$prev..}${{ github.sha }}"
+          {
+            git log --no-merges --format='- %s%n%w(0,2,2)%b' "$range" | grep -vE '^\s*(Co-Authored-By:|$)'
+            if [ -n "$prev" ]; then
+              echo
+              echo "Full changelog: https://github.com/${{ github.repository }}/compare/$prev...v${{ needs.version.outputs.version }}"
+            fi
+          } > notes.md
+          cat notes.md
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           TAG: v${{ needs.version.outputs.version }}
         run: >
-          gh release create "$TAG" dist/*
+          gh release create "$TAG" dist/* install.sh
           --repo "${{ github.repository }}"
           --target "${{ github.sha }}"
           --title "$TAG"
-          --generate-notes
+          --notes-file notes.md

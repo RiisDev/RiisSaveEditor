@@ -1,3 +1,5 @@
+using System.IO.Compression;
+
 namespace RiisSaveEditor.Saves
 {
 	// Uploaded saves are untrusted, so anything that expands data (zip, gzip, zlib) goes through
@@ -23,6 +25,40 @@ namespace RiisSaveEditor.Saves
 			}
 
 			return result.ToArray();
+		}
+
+		public static byte[] ZLibDecompress(byte[] data)
+		{
+			using ZLibStream z = new(new MemoryStream(data), CompressionMode.Decompress);
+			return ReadAll(z);
+		}
+
+		public static byte[] GZipDecompress(byte[] data)
+		{
+			using GZipStream gz = new(new MemoryStream(data), CompressionMode.Decompress);
+			return ReadAll(gz);
+		}
+
+		public static byte[] ZLibCompress(ReadOnlySpan<byte> data, CompressionLevel level = CompressionLevel.Optimal)
+		{
+			using MemoryStream output = new();
+			using (ZLibStream z = new(output, level, leaveOpen: true))
+			{
+				z.Write(data);
+			}
+
+			return output.ToArray();
+		}
+
+		public static byte[] GZipCompress(ReadOnlySpan<byte> data, CompressionLevel level = CompressionLevel.Optimal)
+		{
+			using MemoryStream output = new();
+			using (GZipStream gz = new(output, level, leaveOpen: true))
+			{
+				gz.Write(data);
+			}
+
+			return output.ToArray();
 		}
 	}
 }

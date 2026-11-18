@@ -30,13 +30,16 @@ builder.Services.AddSingleton<ISaveFormat>(_ => new UnityEs3Format(knownPassword
 builder.Services.AddSingleton<SaveFormatRegistry>();
 builder.Services.AddSingleton(_ => new SaveCache(Path.Combine(dataDir, "cache"), TimeProvider.System, knownPasswordsPath: knownPasswords));
 builder.Services.AddHostedService<CacheCleanup>();
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<UpdateChecker>();
+builder.Services.AddHostedService(p => p.GetRequiredService<UpdateChecker>());
 
 WebApplication app = builder.Build();
 
 app.Use((context, next) =>
 {
-    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers.XContentTypeOptions = "nostiff";
+    context.Response.Headers.XFrameOptions = "DENY";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
     return next();
 });

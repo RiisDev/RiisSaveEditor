@@ -5,15 +5,13 @@ using System.Text;
 namespace RiisSaveEditor.Saves
 {
 	// Easy Save 3 files are JSON, optionally gzipped and then AES-encrypted. The encryption layer is
-// AES-128-CBC with the key derived from the game's password (PBKDF2-SHA1, 100 iterations) and the
-// 16 byte IV stored at the start of the file doubling as the PBKDF2 salt. The JSON layer goes through
-// JsonText, so only edited values are rewritten and an untouched file is returned byte-for-byte.
+	// AES-128-CBC with the key derived from the game's password (PBKDF2-SHA1, 100 iterations) and the
+	// 16 byte IV stored at the start of the file doubling as the PBKDF2 salt. The JSON layer goes through
+	// JsonText, so only edited values are rewritten and an untouched file is returned byte-for-byte.
 	public sealed class UnityEs3Format(string? knownPasswordsPath = null) : ISaveFormat
 	{
 		private sealed record State(byte[] Original, bool Bom, string Text, string? Password, bool Gzip);
 
-		private static readonly byte[] BomBytes = [0xEF, 0xBB, 0xBF];
-		private static readonly UTF8Encoding Strict = new(false, true);
 
 		public string Name => "Unity (Easy Save 3)";
 
@@ -72,8 +70,7 @@ namespace RiisSaveEditor.Saves
 			{
 				try
 				{
-					using GZipStream gz = new(new MemoryStream(bytes), CompressionMode.Decompress);
-					bytes = SafeIo.ReadAll(gz);
+					bytes = SafeIo.GZipDecompress(bytes);
 					gzip = true;
 				}
 				catch (InvalidDataException)
@@ -87,10 +84,9 @@ namespace RiisSaveEditor.Saves
 				throw Failure(usedPassword);
 			}
 
-			bool bom = bytes.AsSpan().StartsWith(BomBytes);
 			try
 			{
-				string text = Strict.GetString(bytes, bom ? 3 : 0, bytes.Length - (bom ? 3 : 0));
+				string text = TextBytes.DecodeUtf8(bytes, out bool bom);
 				return new SaveDocument(this, fileName, JsonText.Parse(text, fileName), new State(data, bom, text, usedPassword, gzip));
 			}
 			catch (Exception e) when (e is SaveException or DecoderFallbackException)
@@ -109,23 +105,12 @@ namespace RiisSaveEditor.Saves
 				return state.Original;
 			}
 
-			byte[] body = Encoding.UTF8.GetBytes(text);
-			return Wrap(state.Bom ? [.. BomBytes, .. body] : body, state.Password, state.Gzip);
+			return Wrap(TextBytes.EncodeUtf8(text, state.Bom), state.Password, state.Gzip);
 		}
 
 		internal static byte[] Wrap(byte[] json, string? password, bool gzip)
 		{
-			byte[] bytes = json;
-			if (gzip)
-			{
-				using MemoryStream compressed = new();
-				using (GZipStream gz = new(compressed, CompressionLevel.Optimal, leaveOpen: true))
-				{
-					gz.Write(bytes);
-				}
-
-				bytes = compressed.ToArray();
-			}
+			byte[] bytes = gzip ? SafeIo.GZipCompress(json) : json;
 
 			if (string.IsNullOrEmpty(password))
 			{
@@ -164,7 +149,7 @@ namespace RiisSaveEditor.Saves
 
 		private static bool LooksLikeJson(ReadOnlySpan<byte> data)
 		{
-			int i = data.StartsWith(BomBytes) ? 3 : 0;
+			int i = TextBytes.HasBom(data) ? 3 : 0;
 			while (i < data.Length && data[i] is 0x20 or 0x09 or 0x0D or 0x0A)
 			{
 				i++;

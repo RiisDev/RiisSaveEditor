@@ -21,10 +21,10 @@ namespace RiisSaveEditor.Saves
 		{
 			public static TextShape Detect(ReadOnlySpan<byte> bytes, out int skip)
 			{
-				if (bytes.StartsWith("﻿"u8))
+				if (TextBytes.HasBom(bytes))
 				{
 					skip = 3;
-					return new TextShape(new UTF8Encoding(false, true), [0xEF, 0xBB, 0xBF]);
+					return new TextShape(TextBytes.Strict, TextBytes.Utf8Bom);
 				}
 
 				if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
@@ -40,7 +40,7 @@ namespace RiisSaveEditor.Saves
 				}
 
 				skip = 0;
-				return new TextShape(new UTF8Encoding(false, true), []);
+				return new TextShape(TextBytes.Strict, []);
 			}
 
 			public string Decode(ReadOnlySpan<byte> bytes, int skip) => Encoding.GetString(bytes[skip..]);

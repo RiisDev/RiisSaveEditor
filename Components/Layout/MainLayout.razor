@@ -1,4 +1,13 @@
 @inherits LayoutComponentBase
+@inject RiisSaveEditor.UpdateChecker Updates
+
+@if (Updates.UpdateAvailable)
+{
+    <div class="update-banner">
+        Version @Updates.Latest is available (you are on @UpdateChecker.CurrentText).
+        <a href="@Updates.LatestUrlHtml" target="_blank" rel="noopener noreferrer">View release</a>
+    </div>
+}
 
 <nav class="nav-container">
     <div class="nav-links">
