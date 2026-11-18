@@ -13,10 +13,10 @@ namespace RiisSaveEditor
 				try
 				{
 					int removed = await cache.SweepAsync(stoppingToken);
-					if (removed > 0)
-					{
+					if (removed <= 0) continue;
+
+					if (logger.IsEnabled(LogLevel.Information))
 						logger.LogInformation("Removed {Count} expired cached saves", removed);
-					}
 				}
 				catch (Exception e) when (e is IOException or UnauthorizedAccessException)
 				{

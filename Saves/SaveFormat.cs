@@ -9,7 +9,7 @@ namespace RiisSaveEditor.Saves
 
 	public class SaveException(string message) : Exception(message);
 
-// Thrown when a file is encrypted and the password is missing or wrong, so the UI can ask for it.
+	// Thrown when a file is encrypted and the password is missing or wrong, so the UI can ask for it.
 	public sealed class PasswordRequiredException(string message) : SaveException(message);
 
 	public sealed class SaveNode(string name, NodeKind kind, string? value = null)

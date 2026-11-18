@@ -8,14 +8,14 @@ namespace RiisSaveEditor.Saves
 	// MemoLength is the memo-put opcode right after the value, Shared means a memo get refers back to it.
 	public sealed record PatchSite(int Start, int Length, string? Original, byte Op, int MemoLength = 0, bool Shared = false);
 
-// A protocol 4+ frame: the declared length of the 8 byte field at FieldOffset covers [Start, Start + Length).
+	// A protocol 4+ frame: the declared length of the 8 byte field at FieldOffset covers [Start, Start + Length).
 	public sealed record PickleFrame(int FieldOffset, int Start, long Length);
 
 	public sealed record PickleDocument(byte[] Data, SaveNode Root, List<SaveNode> Sites, List<PickleFrame> Frames);
 
-// Reads a Python pickle into a display tree without executing anything. Writing never rebuilds the
-// stream: edited primitives are re-encoded in place and every other byte is copied, so memo indexes
-// and object identity stay valid. Frame lengths are corrected when an edit changes a size.
+	// Reads a Python pickle into a display tree without executing anything. Writing never rebuilds the
+	// stream: edited primitives are re-encoded in place and every other byte is copied, so memo indexes
+	// and object identity stay valid. Frame lengths are corrected when an edit changes a size.
 	public static class Pickle
 	{
 		public static PickleDocument Parse(byte[] d)
