@@ -40,8 +40,11 @@ Name: "{group}\Riis Save Editor"; Filename: "{app}\launch.cmd"; WorkingDir: "{ap
 Name: "{group}\Uninstall Riis Save Editor"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Riis Save Editor"; Filename: "{app}\launch.cmd"; WorkingDir: "{app}"; IconFilename: "{app}\RiisSaveEditor.exe"; Tasks: desktopicon; Flags: runminimized
 
-[Run]
-Filename: "{app}\launch.cmd"; Description: "Open Riis Save Editor"; Flags: postinstall nowait skipifsilent shellexec runminimized
+[UninstallDelete]
+; Files the app and installer create at run time are not tracked by Setup.
+Type: files; Name: "{app}\launch.cmd"
+Type: files; Name: "{app}\appsettings.Production.json"
+Type: files; Name: "{app}\service.log*"
 
 [Code]
 var
@@ -182,18 +185,24 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
     SaveStringToFile(ExpandConstant('{app}\appsettings.Production.json'),
       '{ "Urls": "http://127.0.0.1:' + Port + '" }' + #13#10, False);
-    // If the service is running, only open the browser; otherwise start the app first.
+    // Start the app unless the service already runs, wait until the server answers, then open the browser.
     SaveStringToFile(ExpandConstant('{app}\launch.cmd'),
       '@echo off' + #13#10 +
       'cd /d "%~dp0"' + #13#10 +
-      'sc query {#ServiceName} 2>nul | find "RUNNING" >nul && goto open' + #13#10 +
+      'sc query {#ServiceName} 2>nul | find "RUNNING" >nul && goto wait' + #13#10 +
       'start "Riis Save Editor" /min RiisSaveEditor.exe' + #13#10 +
-      'timeout /t 3 /nobreak >nul' + #13#10 +
+      ':wait' + #13#10 +
+      'for /l %%i in (1,1,30) do (' + #13#10 +
+      '  curl.exe -s -o nul http://127.0.0.1:' + Port + ' && goto open' + #13#10 +
+      '  timeout /t 1 /nobreak >nul' + #13#10 +
+      ')' + #13#10 +
       ':open' + #13#10 +
       'start http://localhost:' + Port + #13#10, False);
     if WizardIsTaskSelected('service') then
@@ -203,6 +212,11 @@ begin
     end
     else if ServiceExists() then
       RunElevated('"' + ExpandConstant('{app}\nssm.exe') + '" start {#ServiceName}' + #13#10);
+
+    // [Run] entries execute before this step, when launch.cmd does not exist yet, so launch it here.
+    // /LAUNCH=1 lets a silent install do the same for testing.
+    if (not WizardSilent) or (ExpandConstant('{param:LAUNCH|}') <> '') then
+      ShellExec('open', ExpandConstant('{app}\launch.cmd'), '', ExpandConstant('{app}'), SW_SHOWMINNOACTIVE, ewNoWait, ResultCode);
   end;
 end;
 
@@ -251,7 +265,7 @@ begin
     Box.Left := ScaleX(16);
     Box.Top := ScaleY(54);
     Box.Width := ScaleX(348);
-    Box.Caption := 'Remove save caches (uploaded saves and resume codes)';
+    Box.Caption := 'Also delete all saved data and the install folder';
 
     Ok := TNewButton.Create(F);
     Ok.Parent := F;
@@ -281,6 +295,8 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
 begin
   if CurUninstallStep = usUninstall then
   begin
@@ -288,13 +304,20 @@ begin
       RunElevated(
         '"' + ExpandConstant('{app}\nssm.exe') + '" stop {#ServiceName} >nul 2>&1' + #13#10 +
         '"' + ExpandConstant('{app}\nssm.exe') + '" remove {#ServiceName} confirm' + #13#10);
+    // A copy started from the shortcut keeps its exe and data files locked. Match by path so a
+    // development build running elsewhere is left alone.
+    // The uninstaller is 32-bit; a 32-bit PowerShell cannot read the path of a 64-bit process, so use the native one.
+    if not Exec(ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -Command "Get-Process RiisSaveEditor -ErrorAction SilentlyContinue | ' +
+      'Where-Object { $_.Path -eq ''' + ExpandConstant('{app}\RiisSaveEditor.exe') + ''' } | Stop-Process -Force"',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      Log('Could not run powershell to stop the app');
+    Sleep(500);
   end
   else if CurUninstallStep = usPostUninstall then
   begin
+    // Without the checkbox App_Data (keys, known passwords, caches) stays so a reinstall picks it up.
     if RemoveCache then
-      DelTree(ExpandConstant('{app}\App_Data\cache'), True, True, True);
-    // Remove the folder only when nothing the user may want (keys, known passwords) is left.
-    RemoveDir(ExpandConstant('{app}\App_Data'));
-    RemoveDir(ExpandConstant('{app}'));
+      DelTree(ExpandConstant('{app}'), True, True, True);
   end;
 end;
