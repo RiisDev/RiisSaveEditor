@@ -27,6 +27,8 @@ init 998 python:
             self.walk_cache = {}
             self.hud_orig = None
             self.hud_done = False
+            self.grow_orig = {}
+            self.grow_done = False
             self.on_open = []
             self.ui = {"query": "", "type": "all", "change": "all", "show_all": False, "only_pins": False,
                        "sort": "order", "desc": False, "page": 0, "page_size": 50, "edits": {}}
@@ -36,7 +38,8 @@ init 998 python:
 
     for _k, _v in (("rcheats_pins", {}), ("rcheats_notify", True), ("rcheats_corner", "tr"),
                    ("rcheats_filter", ""), ("rcheats_rules", []), ("rcheats_hud_alpha", 1.0),
-                   ("rcheats_walk", True), ("rcheats_notify_size", 16), ("rcheats_notify_width", 320),
+                   ("rcheats_walk", True), ("rcheats_walk_fit", "default"), ("rcheats_walk_wrap", 40),
+                   ("rcheats_notify_size", 16), ("rcheats_notify_width", 320),
                    ("rcheats_notify_secs", 4)):
         if getattr(persistent, _k) is None:
             setattr(persistent, _k, _v)

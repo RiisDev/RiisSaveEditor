@@ -29,6 +29,7 @@ namespace RiisSaveEditor.Checks
 			}
 
 			Expect(all.Contains("use rcheats_sec_hud") && all.Contains("use rcheats_sec_walk") && !all.Contains("{{SECTIONS}}"), "general page sections");
+			Expect(all.Contains("def rcheats_walk_layout") && all.Contains("def rcheats_grow_apply") && all.Contains("rcheats_walk_fit") && all.Contains("rcheats_walk_wrap"), "walkthrough fit modes");
 			string noFeatures = RenpyCheats.Build(new CheatOptions(Values: false, Strings: false, Hud: false, Walkthrough: false));
 			Expect(noFeatures.Contains("screen rcheats(") && !noFeatures.Contains("rcheats_tab_values") && !noFeatures.Contains("replace_text"), "features toggle individually");
 
